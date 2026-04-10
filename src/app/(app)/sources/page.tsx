@@ -94,6 +94,12 @@ export default async function SourcesPage({ searchParams }: SourcesPageProps) {
         </div>
       )}
 
+      {data.sources.length === 0 && data.pendingRules.length === 0 ? (
+        <div className="empty-card">
+          <p>No sources yet. Add sender rules in <a href="/settings">Settings</a> and run a sync to start building your library.</p>
+        </div>
+      ) : null}
+
       <section className="grid two">
         {(filteredSources ?? [
           ...labelled.flatMap(([, sources]) => sources),

@@ -17,6 +17,9 @@ export const mockSources: SourceRecord[] = [
     priorityLevel: "core",
     messageCount: 2,
     lastReceivedAt: "2026-03-24T08:15:00.000Z",
+    ruleId: "rule-1",
+    ruleLabel: "Markets",
+    ruleActive: true,
   },
   {
     id: "source-2",
@@ -30,6 +33,9 @@ export const mockSources: SourceRecord[] = [
     priorityLevel: "normal",
     messageCount: 2,
     lastReceivedAt: "2026-03-23T07:00:00.000Z",
+    ruleId: "rule-2",
+    ruleLabel: "Design",
+    ruleActive: true,
   },
   {
     id: "source-3",
@@ -43,6 +49,9 @@ export const mockSources: SourceRecord[] = [
     priorityLevel: "core",
     messageCount: 1,
     lastReceivedAt: "2026-03-20T06:30:00.000Z",
+    ruleId: null,
+    ruleLabel: null,
+    ruleActive: null,
   },
 ];
 
@@ -197,6 +206,9 @@ export const mockSenderRules: SenderRule[] = [
     action: "include",
     sourceLabel: "Markets",
     createdAt: "2026-03-20T12:00:00.000Z",
+    active: true,
+    messageCount: 2,
+    sourceId: "source-1",
   },
   {
     id: "rule-2",
@@ -205,5 +217,8 @@ export const mockSenderRules: SenderRule[] = [
     action: "include",
     sourceLabel: "Design",
     createdAt: "2026-03-20T12:10:00.000Z",
+    active: true,
+    messageCount: 2,
+    sourceId: "source-2",
   },
 ];

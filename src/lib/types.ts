@@ -103,4 +103,5 @@ export type SettingsData = {
   senderRules: SenderRule[];
   lastError?: string | null;
   userEmail: string | null;
+  gmailEmail: string | null;
 };

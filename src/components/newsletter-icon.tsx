@@ -29,7 +29,15 @@ function getDomainHue(domain: string): number {
 export function NewsletterIcon({ domain, name, size = 36, logoUrl }: NewsletterIconProps) {
   const [failed, setFailed] = useState(false);
 
-  const imgSrc = logoUrl || (domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : null);
+  // Trust stored logoUrl only if it has strong signals of being a real publisher image.
+  // This filters out wrongly-extracted app promo images (Spark, Pocket, etc.)
+  // while still accepting author profile photos from newsletter CDNs.
+  const isLikelyLogo = logoUrl && (
+    /logo|profile|avatar|headshot|author/i.test(logoUrl) ||
+    /substackcdn\.com|beehiiv\.com|ghost\.io|mailchimp\.com|convertkit\.com/i.test(logoUrl)
+  );
+  const faviconUrl = domain ? `https://www.google.com/s2/favicons?domain=${domain}&sz=64` : null;
+  const imgSrc = isLikelyLogo ? logoUrl : (faviconUrl ?? logoUrl);
   const hue = getDomainHue(domain);
   const initials = getInitials(name);
 

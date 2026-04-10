@@ -511,6 +511,9 @@ export async function getSourcesData(): Promise<SourcesData> {
           action: r.action,
           sourceLabel: r.source_label ?? null,
           createdAt: r.created_at,
+          active: true,
+          messageCount: 0,
+          sourceId: null,
         }));
       }
     }
@@ -647,6 +650,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       senderRules: [],
       lastError: null,
       userEmail: null,
+      gmailEmail: null,
     };
   }
 
@@ -663,6 +667,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       senderRules: [],
       lastError: null,
       userEmail: null,
+      gmailEmail: null,
     };
   }
 
@@ -670,7 +675,7 @@ export async function getSettingsData(): Promise<SettingsData> {
   const [{ data: accounts }, { count }, { data: rules }, { data: sources }, { data: msgRows }] = await Promise.all([
     supabase
       .from("email_accounts")
-      .select("last_synced_at, last_error", { count: "exact" })
+      .select("last_synced_at, last_error, email_address", { count: "exact" })
       .eq("user_id", user.id)
       .eq("provider", "gmail")
       .limit(1),
@@ -730,6 +735,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       }) || [],
     lastError: accounts?.[0]?.last_error || null,
     userEmail: user.email ?? null,
+    gmailEmail: accounts?.[0]?.email_address ?? null,
   };
 }
 
@@ -1147,7 +1153,9 @@ export async function completeGmailConnection(code: string) {
   return { accountId: data.id };
 }
 
-export async function runSync() {
+export type SyncProgressCallback = (progress: number, message: string) => void;
+
+export async function runSync(onProgress?: SyncProgressCallback) {
   const mode = await getRuntimeMode();
   if (mode === "setup") {
     return {
@@ -1175,6 +1183,8 @@ export async function runSync() {
     return { ok: false, error: "Supabase admin client unavailable." };
   }
 
+  onProgress?.(5, "Checking account…");
+
   const { data: account, error: accountError } = await admin
     .from("email_accounts")
     .select(
@@ -1187,6 +1197,8 @@ export async function runSync() {
   if (accountError || !account) {
     return { ok: false, error: "Connect Gmail before running sync." };
   }
+
+  onProgress?.(10, "Loading sender rules…");
 
   const { data: rules } = await admin
     .from("sender_rules")
@@ -1228,11 +1240,14 @@ export async function runSync() {
       action: rule.action,
     }));
 
+    onProgress?.(20, "Starting sync…");
+
     // New include rules (synced_at = null) need a targeted full-query backfill
     // so their historical emails are pulled without re-querying every other sender.
     const newIncludeRules = includeRules.filter((rule) => !rule.synced_at);
     let backfillSkipped = 0; // accumulates skipped counts from backfill pass
     if (newIncludeRules.length > 0) {
+      onProgress?.(30, `Backfilling ${newIncludeRules.length} new sender${newIncludeRules.length === 1 ? "" : "s"}…`);
       const backfillResult = await syncNewslettersFromGmail({
         accessToken,
         refreshToken,
@@ -1245,6 +1260,7 @@ export async function runSync() {
         })),
       });
 
+      onProgress?.(45, `Saving backfill (${backfillResult.messages.length} messages)…`);
       await syncMessageBatch(user.id, account.id, backfillResult.messages);
 
       backfillSkipped += backfillResult.skippedCount;
@@ -1255,6 +1271,8 @@ export async function runSync() {
         .update({ synced_at: new Date().toISOString() })
         .in("id", newIncludeRules.map((r) => r.id));
     }
+
+    onProgress?.(55, "Fetching recent emails…");
 
     // Only use incremental sync (historyId) after the first full sync has run.
     // On first sync last_synced_at is null — always do a full query so historical
@@ -1268,8 +1286,10 @@ export async function runSync() {
       rules: allMappedRules,
     });
 
+    onProgress?.(75, `Saving ${result.messages.length} message${result.messages.length === 1 ? "" : "s"}…`);
     await syncMessageBatch(user.id, account.id, result.messages);
 
+    onProgress?.(90, "Cleaning up…");
     await pruneOldBodies(user.id);
 
     // Persist refreshed OAuth tokens so they survive across syncs
@@ -1313,6 +1333,7 @@ export async function runSync() {
       ? ` ${totalSkipped} messages were skipped due to errors.`
       : "";
 
+    onProgress?.(100, "Done");
     return {
       ok: true,
       message: `Tracked-source sync completed. ${result.messages.length} newsletter issues were processed from ${includeRules.length} included sender rules.${skippedNote}`,

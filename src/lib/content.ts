@@ -274,15 +274,10 @@ export function extractSubstackArticleHtml(html: string): string {
  *
  * Filters out tracking pixels (1×1 images) and non-HTTP sources.
  */
-export function extractPublisherLogoUrl(html: string, senderDomain?: string): string | null {
-  // Limit the search region to the pre-article header
-  let searchRegion: string;
-  if (senderDomain && isSubstackDomain(senderDomain)) {
-    const readInAppIdx = html.search(/read\s+in\s+app/i);
-    searchRegion = readInAppIdx !== -1 ? html.slice(0, readInAppIdx) : html.slice(0, 4000);
-  } else {
-    searchRegion = html.slice(0, 4000);
-  }
+export function extractPublisherLogoUrl(html: string, _senderDomain?: string): string | null {
+  // Limit the search region to before any "read in app" CTA — applies to all senders
+  const readInAppIdx = html.search(/read\s+in\s+(app|browser|spark|pocket|feedly)/i);
+  const searchRegion = readInAppIdx !== -1 ? html.slice(0, readInAppIdx) : html.slice(0, 4000);
 
   const imgRegex = /<img\b([^>]*)>/gi;
   let match: RegExpExecArray | null;
@@ -304,12 +299,18 @@ export function extractPublisherLogoUrl(html: string, senderDomain?: string): st
     // Skip spacers and trackers by filename pattern
     if (/spacer|blank|pixel|tracker/i.test(src)) continue;
 
-    // Prefer images explicitly marked as logos
+    // Prefer images explicitly marked as logos or author profile photos
     const isLogoLike =
       /logo/i.test(src) ||
       /\bclass=["'][^"']*logo[^"']*["']/i.test(attrs) ||
       /\balt=["'][^"']*logo[^"']*["']/i.test(attrs);
     if (isLogoLike) return src;
+
+    const isProfileLike =
+      /profile|avatar|headshot|author/i.test(src) ||
+      /\bclass=["'][^"']*(profile|avatar|author)[^"']*["']/i.test(attrs) ||
+      /\balt=["'][^"']*(profile|avatar|author|photo)[^"']*["']/i.test(attrs);
+    if (isProfileLike) return src;
 
     // Reject wide content/banner images — logos are small and roughly square
     const wMatch = attrs.match(/\bwidth=["']?(\d+)/i);

@@ -1,5 +1,4 @@
 import Link from "next/link";
-import Image from "next/image";
 import { ReactNode, Suspense } from "react";
 
 import { NavLink } from "@/components/nav-link";
@@ -53,13 +52,13 @@ export async function AppShell({ children }: AppShellProps) {
       <aside className="sidebar">
         <div className="brand">
           <Link href="/" className="brand-logo-link">
-            <Image
-              src="/lumen.png"
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/logo.svg"
               alt="Lumen"
               width={52}
               height={52}
               className="brand-logo"
-              priority
             />
             <h1>Lumen</h1>
           </Link>

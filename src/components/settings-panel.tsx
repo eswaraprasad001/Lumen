@@ -1,39 +1,35 @@
 "use client";
 
-import { ReactNode, startTransition, useRef, useState, useEffect } from "react";
+import { ReactNode, startTransition, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { format } from "date-fns";
 
-function SyncElapsedCircle({ startedAt }: { startedAt: number }) {
-  const [elapsed, setElapsed] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt) / 1000)), 200);
-    return () => clearInterval(id);
-  }, [startedAt]);
-
-  const size = 52;
-  const r = 20;
+function SyncProgressCircle({ progress, message }: { progress: number; message: string }) {
+  const size = 56;
+  const r = 22;
   const circ = 2 * Math.PI * r;
-  // Spin around every 30s so it always looks like it's progressing
-  const dashOffset = circ - (circ * (elapsed % 30)) / 30;
+  const dashOffset = circ - (circ * Math.max(0, Math.min(progress, 100))) / 100;
+  const isDone = progress >= 100;
+  const color = isDone ? "var(--success)" : "var(--accent)";
 
   return (
-    <div className="sync-elapsed-wrap" title={`Syncing… ${elapsed}s`}>
+    <div className="sync-elapsed-wrap" title={message}>
       <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
         <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--border)" strokeWidth="3" />
         <circle
           cx={size / 2} cy={size / 2} r={r}
           fill="none"
-          stroke="var(--accent)"
+          stroke={color}
           strokeWidth="3"
           strokeLinecap="round"
           strokeDasharray={circ}
           strokeDashoffset={dashOffset}
           transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: "stroke-dashoffset 0.4s ease, stroke 0.3s ease" }}
         />
       </svg>
-      <span className="sync-elapsed-label">{elapsed}s</span>
+      <span className="sync-elapsed-label">{progress}%</span>
     </div>
   );
 }
@@ -49,6 +45,7 @@ type SettingsPanelProps = {
   retentionDays: number;
   metadataRetentionDays: number;
   userEmail: string | null;
+  gmailEmail: string | null;
   lastError?: string | null;
   mode: "setup" | "live";
   signOutButton?: ReactNode;
@@ -61,6 +58,7 @@ export function SettingsPanel({
   retentionDays,
   metadataRetentionDays,
   userEmail,
+  gmailEmail,
   lastError,
   signOutButton,
 }: SettingsPanelProps) {
@@ -72,9 +70,10 @@ export function SettingsPanel({
       : null,
   );
   const [loading, setLoading] = useState(false);
-  const [syncStartedAt, setSyncStartedAt] = useState<number | null>(null);
+  const [syncProgress, setSyncProgress] = useState<{ progress: number; message: string } | null>(null);
   const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null);
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
+  const [confirmDeleteData, setConfirmDeleteData] = useState(false);
   const ruleFormRef = useRef<HTMLFormElement>(null);
 
   function flash(message: string, section: "left" | "right" = "left", ms = 4000) {
@@ -84,15 +83,37 @@ export function SettingsPanel({
 
   async function handleSync() {
     setLoading(true);
-    setSyncStartedAt(Date.now());
+    setSyncProgress({ progress: 0, message: "Starting…" });
     startTransition(async () => {
-      const response = await fetch("/api/sync/run", { method: "POST" });
-      const payload = (await response.json()) as { message?: string; error?: string };
-      setSyncStartedAt(null);
-      if (response.ok) {
+      try {
+        const response = await fetch("/api/sync/stream", { method: "POST" });
+        if (!response.body) throw new Error("No stream");
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() ?? "";
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const parsed = JSON.parse(line.slice(6)) as { progress: number; message: string };
+            if (parsed.progress === -1) {
+              flash(parsed.message, "left");
+              setSyncProgress(null);
+              setLoading(false);
+              return;
+            }
+            setSyncProgress(parsed);
+          }
+        }
+        setSyncProgress(null);
         router.refresh();
-      } else {
-        flash(payload.error || "Sync failed. Please try again.", "left");
+      } catch {
+        flash("Sync failed. Please try again.", "left");
+        setSyncProgress(null);
       }
       setLoading(false);
     });
@@ -187,6 +208,7 @@ export function SettingsPanel({
   }
 
   return (
+    <>
     <div className="settings-grid">
 
       {/* ── Left panel ── */}
@@ -205,7 +227,7 @@ export function SettingsPanel({
 
         <div className="rule-list">
           {/* Syncing from */}
-          {userEmail ? (
+          {gmailEmail ? (
             <div className="rule-item">
               <div className="gmail-account-display">
                 <span className="gmail-icon-badge" aria-hidden>
@@ -218,7 +240,7 @@ export function SettingsPanel({
                 </span>
                 <div>
                   <strong style={{ fontSize: "0.875rem" }}>Syncing from</strong>
-                  <p className="muted-note" style={{ marginTop: 2 }}>{userEmail}</p>
+                  <p className="muted-note" style={{ marginTop: 2 }}>{gmailEmail}</p>
                 </div>
               </div>
             </div>
@@ -252,8 +274,8 @@ export function SettingsPanel({
                   <button className="button-secondary" onClick={handleDisconnect} disabled={loading}>
                     Disconnect
                   </button>
-                  {syncStartedAt ? (
-                    <SyncElapsedCircle startedAt={syncStartedAt} />
+                  {syncProgress ? (
+                    <SyncProgressCircle progress={syncProgress.progress} message={syncProgress.message} />
                   ) : (
                     <button className="button-secondary" onClick={handleSync} disabled={loading}>
                       Sync now
@@ -316,7 +338,7 @@ export function SettingsPanel({
               <strong>Delete newsletter data</strong>
               <p className="muted-note">Removes all synced content. Your rules and account stay intact.</p>
             </div>
-            <button className="button-danger-sm" onClick={handleDeleteData} disabled={loading}>
+            <button className="button-danger-sm" onClick={() => setConfirmDeleteData(true)} disabled={loading}>
               Delete data
             </button>
           </div>
@@ -326,20 +348,9 @@ export function SettingsPanel({
               <strong>Delete account</strong>
               <p className="muted-note">Permanently erases your account and all associated data.</p>
             </div>
-            {confirmDeleteAccount ? (
-              <div className="toolbar">
-                <button className="button-secondary" onClick={() => setConfirmDeleteAccount(false)} disabled={loading}>
-                  Cancel
-                </button>
-                <button className="button-danger-sm" onClick={handleDeleteAccount} disabled={loading}>
-                  {loading ? "Deleting…" : "Confirm"}
-                </button>
-              </div>
-            ) : (
-              <button className="button-danger-sm" onClick={() => setConfirmDeleteAccount(true)} disabled={loading}>
-                Delete account
-              </button>
-            )}
+            <button className="button-danger-sm" onClick={() => setConfirmDeleteAccount(true)} disabled={loading}>
+              Delete account
+            </button>
           </div>
         </div>
       </section>
@@ -443,9 +454,9 @@ export function SettingsPanel({
                   </div>
                 </div>
               ))}
-              <a href="/sources" className="rules-view-all">
+              <Link href="/sources" className="rules-view-all">
                 Go to Sources to edit labels, pause, or delete rules →
-              </a>
+              </Link>
             </>
           ) : (
             <div className="empty-card">
@@ -455,5 +466,50 @@ export function SettingsPanel({
         </div>
       </section>
     </div>
+
+    {confirmDeleteData && (
+      <div className="onboarding-backdrop" onClick={() => setConfirmDeleteData(false)}>
+        <div className="activate-modal" onClick={(e) => e.stopPropagation()}>
+          <button className="onboarding-close" onClick={() => setConfirmDeleteData(false)} aria-label="Cancel">✕</button>
+          <div className="activate-modal-header">
+            <h2>Delete newsletter data</h2>
+            <p>This will permanently remove all synced newsletters from your library. Your rules and account will stay intact. This cannot be undone.</p>
+          </div>
+          <div className="activate-modal-options">
+            <button className="activate-option activate-option-danger" onClick={() => { setConfirmDeleteData(false); handleDeleteData(); }} disabled={loading}>
+              <strong>{loading ? "Deleting…" : "Yes, delete all data"}</strong>
+              <span>Removes all synced content. Rules and account are kept.</span>
+            </button>
+            <button className="activate-option" onClick={() => setConfirmDeleteData(false)} disabled={loading}>
+              <strong>Cancel</strong>
+              <span>Keep your library intact.</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {confirmDeleteAccount && (
+      <div className="onboarding-backdrop" onClick={() => setConfirmDeleteAccount(false)}>
+        <div className="activate-modal" onClick={(e) => e.stopPropagation()}>
+          <button className="onboarding-close" onClick={() => setConfirmDeleteAccount(false)} aria-label="Cancel">✕</button>
+          <div className="activate-modal-header">
+            <h2>Delete account</h2>
+            <p>This will permanently erase your account and all associated data. This cannot be undone.</p>
+          </div>
+          <div className="activate-modal-options">
+            <button className="activate-option activate-option-danger" onClick={handleDeleteAccount} disabled={loading}>
+              <strong>{loading ? "Deleting…" : "Yes, delete my account"}</strong>
+              <span>Permanently removes your account and all data.</span>
+            </button>
+            <button className="activate-option" onClick={() => setConfirmDeleteAccount(false)} disabled={loading}>
+              <strong>Cancel</strong>
+              <span>Keep your account.</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

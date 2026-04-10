@@ -15,6 +15,8 @@ export default async function LoginPage() {
     <div className="login-shell">
       <div className="login-card">
         <div className="login-brand">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.svg" alt="Lumen" width={72} height={72} className="login-logo" />
           <h1>Lumen</h1>
           <p>A quiet workspace for newsletters, shaped around return and continuity.</p>
         </div>

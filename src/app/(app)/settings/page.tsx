@@ -24,6 +24,7 @@ export default async function SettingsPage() {
         retentionDays={data.retentionDays}
         metadataRetentionDays={data.metadataRetentionDays}
         userEmail={data.userEmail}
+        gmailEmail={data.gmailEmail}
         lastError={data.lastError}
         mode={data.mode}
         signOutButton={<SignOutButton />}
