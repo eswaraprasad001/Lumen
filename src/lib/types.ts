@@ -2,7 +2,9 @@ export type MessageState =
   | "new"
   | "opened"
   | "in_progress"
-  | "finished";
+  | "saved"
+  | "finished"
+  | "archived";
 
 export type SenderRuleType = "sender_email" | "sender_domain";
 export type SenderRuleAction = "include" | "exclude";

@@ -22,6 +22,8 @@ export type ReadingStateCounts = {
   opened: number;
   in_progress: number;
   finished: number;
+  saved: number;
+  archived: number;
 };
 
 export type TopSource = {
@@ -99,7 +101,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       totalUsers: 0, activeUsers7d: 0, totalMessages: 0, totalRules: 0,
       gmailConnectedCount: 0, avgMessagesPerUser: 0,
       signupsLast30d: [], messagesLast30d: [],
-      readingStates: { new: 0, opened: 0, in_progress: 0, finished: 0 },
+      readingStates: { new: 0, opened: 0, in_progress: 0, finished: 0, saved: 0, archived: 0 },
       topSources: [], users: [],
     };
   }
@@ -184,7 +186,14 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   const messagesLast30d: DayStat[] = [...msgBuckets.entries()].map(([date, count]) => ({ date, count }));
 
   // ── Reading states — from RPC ─────────────────────────────────────────────────
-  const readingStates: ReadingStateCounts = { new: 0, opened: 0, in_progress: 0, finished: 0 };
+  const readingStates: ReadingStateCounts = {
+    new: 0,
+    opened: 0,
+    in_progress: 0,
+    finished: 0,
+    saved: 0,
+    archived: 0,
+  };
   for (const row of (stateCounts ?? []) as Array<{ state: string; cnt: number }>) {
     if (row.state in readingStates) (readingStates as Record<string, number>)[row.state] = row.cnt;
   }
