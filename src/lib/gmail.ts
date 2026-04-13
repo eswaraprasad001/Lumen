@@ -50,6 +50,7 @@ export type ParsedGmailMessage = {
   unsubscribeUrl: string | null;
   rawHeadersJson: Record<string, string>;
   textContent: string;
+  rawHtmlContent: string | null;
   sanitizedHtmlContent: string | null;
   extractedReadableText: string;
   detectionMethod: string;
@@ -224,6 +225,7 @@ async function fetchMessage(
     unsubscribeUrl: extractUnsubscribe(headers),
     rawHeadersJson: headers,
     textContent,
+    rawHtmlContent: htmlContent,
     sanitizedHtmlContent,
     extractedReadableText,
     detectionMethod: detection.detectionMethod,

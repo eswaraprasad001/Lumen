@@ -48,10 +48,10 @@ export async function DELETE(_: Request, { params }: RouteProps) {
   const { ruleId } = await params;
   const supabase = await createServerSupabaseClient();
 
-  // Fetch the rule so we know the value/type to find the matching source
+  // Fetch the rule — source_id FK tells us exactly which source to delete
   const { data: rule, error: ruleError } = await supabase
     .from("sender_rules")
-    .select("value, rule_type")
+    .select("source_id")
     .eq("id", ruleId)
     .eq("user_id", user!.id)
     .single();
@@ -60,25 +60,12 @@ export async function DELETE(_: Request, { params }: RouteProps) {
     return NextResponse.json({ ok: false, error: "Rule not found." }, { status: 404 });
   }
 
-  // Find the matching newsletter_source
-  const matchColumn =
-    rule.rule_type === "sender_domain"
-      ? "normalized_sender_domain"
-      : "normalized_sender_email";
-
-  const { data: source } = await supabase
-    .from("newsletter_sources")
-    .select("id")
-    .eq("user_id", user!.id)
-    .eq(matchColumn, rule.value.toLowerCase())
-    .maybeSingle();
-
-  // Delete the newsletter_source — messages cascade via FK
-  if (source) {
+  // Delete the newsletter_source via FK — messages and bodies cascade automatically
+  if (rule.source_id) {
     await supabase
       .from("newsletter_sources")
       .delete()
-      .eq("id", source.id)
+      .eq("id", rule.source_id)
       .eq("user_id", user!.id);
   }
 

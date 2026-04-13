@@ -8,6 +8,7 @@ export function createAdminSupabaseClient() {
   }
 
   return createClient(appEnv.supabaseUrl!, appEnv.supabaseServiceRoleKey!, {
+    db: { schema: "lumen" },
     auth: {
       autoRefreshToken: false,
       persistSession: false,

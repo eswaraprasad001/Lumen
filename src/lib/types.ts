@@ -2,9 +2,7 @@ export type MessageState =
   | "new"
   | "opened"
   | "in_progress"
-  | "saved"
-  | "finished"
-  | "archived";
+  | "finished";
 
 export type SenderRuleType = "sender_email" | "sender_domain";
 export type SenderRuleAction = "include" | "exclude";
@@ -78,6 +76,7 @@ export type HomeData = {
 export type LibraryData = {
   mode: "setup" | "live";
   messages: MessageRecord[];
+  totalCount?: number;
 };
 
 export type SourcesData = {

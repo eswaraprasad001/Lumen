@@ -30,6 +30,11 @@ type DbMessageRow = {
   sent_at: string;
   received_at: string;
   unsubscribe_url: string | null;
+  state: MessageState;
+  progress_percent: number;
+  saved: boolean;
+  archived: boolean;
+  last_scroll_position: number;
   newsletter_sources?: {
     id: string;
     display_name: string | null;
@@ -40,13 +45,6 @@ type DbMessageRow = {
     sanitized_html_content: string | null;
     text_content: string | null;
     extracted_readable_text: string | null;
-  }> | null;
-  user_message_states?: Array<{
-    state: MessageState;
-    progress_percent: number | null;
-    saved: boolean | null;
-    archived: boolean | null;
-    last_scroll_position: number | null;
   }> | null;
 };
 
@@ -62,10 +60,6 @@ export const getCurrentUser = cache(async function getCurrentUser() {
 });
 
 function mapDbMessage(row: DbMessageRow): MessageRecord {
-  // Supabase may return the joined relation as an array or a single object
-  const stateRaw = row.user_message_states;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const state = Array.isArray(stateRaw) ? stateRaw[0] : (stateRaw as any);
   const bodyRaw = row.message_bodies;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const body = Array.isArray(bodyRaw) ? bodyRaw[0] : (bodyRaw as any);
@@ -80,10 +74,10 @@ function mapDbMessage(row: DbMessageRow): MessageRecord {
     category: row.newsletter_sources?.category,
     receivedAt: row.received_at,
     sentAt: row.sent_at,
-    state: state?.state || "new",
-    progressPercent: state?.progress_percent || 0,
-    saved: Boolean(state?.saved),
-    archived: Boolean(state?.archived),
+    state: row.state || "new",
+    progressPercent: row.progress_percent || 0,
+    saved: Boolean(row.saved),
+    archived: Boolean(row.archived),
     sanitizedHtmlContent: body?.sanitized_html_content,
     textContent: body?.text_content,
     extractedReadableText: body?.extracted_readable_text,
@@ -91,7 +85,7 @@ function mapDbMessage(row: DbMessageRow): MessageRecord {
     estimatedReadMinutes: estimateReadMinutes(
       body?.extracted_readable_text || body?.text_content || row.snippet || "",
     ),
-    lastScrollPosition: state?.last_scroll_position || 0,
+    lastScrollPosition: row.last_scroll_position || 0,
     logoUrl: row.newsletter_sources?.logo_url ?? null,
     bodyExpired:
       !body?.sanitized_html_content &&
@@ -101,20 +95,6 @@ function mapDbMessage(row: DbMessageRow): MessageRecord {
   };
 }
 
-// buildHomeData kept for potential future reuse; not currently used after home-specific queries.
-
-function buildSources(messages: MessageRecord[], sources: SourceRecord[]) {
-  return sources.map((source) => {
-    const related = messages.filter((message) => message.sourceId === source.id);
-    return {
-      ...source,
-      messageCount: related.length,
-      lastReceivedAt:
-        related.sort((a, b) => +new Date(b.receivedAt) - +new Date(a.receivedAt))[0]?.receivedAt ||
-        source.lastReceivedAt,
-    };
-  });
-}
 
 const getLiveMessages = cache(async function getLiveMessages(): Promise<MessageRecord[]> {
   const user = await getCurrentUser();
@@ -122,61 +102,22 @@ const getLiveMessages = cache(async function getLiveMessages(): Promise<MessageR
 
   const supabase = await createServerSupabaseClient();
 
-  // Fetch messages and their user-specific states in separate queries to avoid
-  // embedded-join RLS issues where user_message_states rows may not be returned.
-  const [messagesResult, statesResult] = await Promise.all([
-    supabase
-      .from("messages")
-      .select(
-        `
-          id,
-          source_id,
-          subject,
-          from_name,
-          from_email,
-          snippet,
-          sent_at,
-          received_at,
-          unsubscribe_url,
-          newsletter_sources(id, display_name, category, logo_url)
-        `,
-      )
-      .eq("user_id", user.id)
-      .order("received_at", { ascending: false })
-      .limit(200),
-    supabase
-      .from("user_message_states")
-      .select("message_id, state, progress_percent, saved, archived, last_scroll_position")
-      .eq("user_id", user.id),
-  ]);
+  const { data, error } = await supabase
+    .from("messages")
+    .select(
+      `
+        id, source_id, subject, from_name, from_email, snippet,
+        sent_at, received_at, unsubscribe_url,
+        state, progress_percent, saved, archived, last_scroll_position,
+        newsletter_sources(id, display_name, category, logo_url)
+      `,
+    )
+    .eq("user_id", user.id)
+    .order("received_at", { ascending: false })
+    .limit(200);
 
-  if (messagesResult.error || !messagesResult.data) {
-    return [];
-  }
-
-  // Build a fast lookup map from message_id → state row
-  const stateMap = new Map<string, {
-    state: MessageState;
-    progress_percent: number | null;
-    saved: boolean | null;
-    archived: boolean | null;
-    last_scroll_position: number | null;
-  }>();
-  for (const row of statesResult.data ?? []) {
-    stateMap.set(row.message_id, row as {
-      state: MessageState;
-      progress_percent: number | null;
-      saved: boolean | null;
-      archived: boolean | null;
-      last_scroll_position: number | null;
-    });
-  }
-
-  return (messagesResult.data as unknown as DbMessageRow[]).map((row) => {
-    const stateRow = stateMap.get(row.id) ?? null;
-    // Inject the state row into the row so mapDbMessage can read it
-    return mapDbMessage({ ...row, user_message_states: stateRow ? [stateRow] : [] });
-  });
+  if (error || !data) return [];
+  return (data as unknown as DbMessageRow[]).map(mapDbMessage);
 });
 
 async function getLiveMessageById(messageId: string) {
@@ -193,18 +134,11 @@ async function getLiveMessageById(messageId: string) {
     .from("messages")
     .select(
       `
-        id,
-        source_id,
-        subject,
-        from_name,
-        from_email,
-        snippet,
-        sent_at,
-        received_at,
-        unsubscribe_url,
+        id, source_id, subject, from_name, from_email, snippet,
+        sent_at, received_at, unsubscribe_url,
+        state, progress_percent, saved, archived, last_scroll_position,
         newsletter_sources(id, display_name, category, logo_url),
-        message_bodies(sanitized_html_content, text_content, extracted_readable_text),
-        user_message_states(state, progress_percent, saved, archived, last_scroll_position)
+        message_bodies(sanitized_html_content, text_content, extracted_readable_text)
       `,
     )
     .eq("user_id", user.id)
@@ -291,6 +225,7 @@ export async function refreshMessageContent(messageId: string): Promise<{ ok: bo
   await admin.from("message_bodies").upsert(
     {
       message_id: messageId,
+      user_id: user.id,
       html_content: parsed.sanitizedHtmlContent,
       text_content: parsed.textContent,
       sanitized_html_content: parsed.sanitizedHtmlContent,
@@ -302,35 +237,38 @@ export async function refreshMessageContent(messageId: string): Promise<{ ok: bo
   return { ok: true };
 }
 
-const getLiveSources = cache(async function getLiveSources(messages: MessageRecord[]): Promise<SourceRecord[]> {
+const getLiveSources = cache(async function getLiveSources(): Promise<SourceRecord[]> {
   const user = await getCurrentUser();
   if (!user) return [];
 
   const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("newsletter_sources")
-    .select(
-      "id, display_name, normalized_sender_email, normalized_sender_domain, description, category, include_rule, exclude_rule, priority_level, last_seen_at",
-    )
-    .eq("user_id", user.id)
-    .order("last_seen_at", { ascending: false });
 
-  if (error || !data) {
-    return [];
-  }
+  const [{ data, error }, { data: rules }] = await Promise.all([
+    supabase
+      .from("newsletter_sources")
+      .select(
+        "id, display_name, normalized_sender_email, normalized_sender_domain, description, category, include_rule, exclude_rule, priority_level, last_seen_at, message_count",
+      )
+      .eq("user_id", user.id)
+      .order("last_seen_at", { ascending: false }),
+    // Issue 8: use FK source_id on sender_rules instead of string matching
+    supabase
+      .from("sender_rules")
+      .select("id, source_id, source_label, active")
+      .eq("user_id", user.id),
+  ]);
 
-  const { data: rules } = await supabase
-    .from("sender_rules")
-    .select("id, value, source_label, active")
-    .eq("user_id", user.id);
+  if (error || !data) return [];
 
-  const ruleMap = new Map((rules ?? []).map((r) => [r.value.toLowerCase(), { id: r.id, label: r.source_label, active: r.active as boolean }]));
+  // Build rule lookup by source_id (FK — no string matching needed)
+  const ruleBySourceId = new Map(
+    (rules ?? [])
+      .filter((r) => r.source_id)
+      .map((r) => [r.source_id as string, { id: r.id, label: r.source_label, active: r.active as boolean }]),
+  );
 
-  const sources = data.map((row) => {
-    const matchedRule =
-      ruleMap.get((row.normalized_sender_email ?? "").toLowerCase()) ??
-      ruleMap.get((row.normalized_sender_domain ?? "").toLowerCase()) ??
-      null;
+  return data.map((row) => {
+    const matchedRule = ruleBySourceId.get(row.id) ?? null;
     return {
       id: row.id,
       displayName: row.display_name || row.normalized_sender_domain,
@@ -341,19 +279,17 @@ const getLiveSources = cache(async function getLiveSources(messages: MessageReco
       includeRule: row.include_rule,
       excludeRule: row.exclude_rule,
       priorityLevel: row.priority_level,
-      messageCount: 0,
+      messageCount: row.message_count ?? 0,
       lastReceivedAt: row.last_seen_at,
       ruleId: matchedRule?.id ?? null,
       ruleLabel: matchedRule?.label ?? null,
       ruleActive: matchedRule?.active ?? null,
     };
   }) satisfies SourceRecord[];
-
-  return buildSources(messages, sources);
 });
 
 export async function getHomeData() {
-  const [mode, messages] = await Promise.all([getRuntimeMode(), getLiveMessages()]);
+  const mode = await getRuntimeMode();
 
   if (mode === "setup") {
     return {
@@ -368,58 +304,89 @@ export async function getHomeData() {
     } satisfies HomeData;
   }
 
-  // Detect first-time users: no Gmail account connected and no sender rules yet
   const user = await getCurrentUser();
-  let isNewUser = false;
-  if (user) {
-    const supabase = await createServerSupabaseClient();
-    const [{ count: accountCount }, { count: ruleCount }] = await Promise.all([
-      supabase.from("email_accounts").select("id", { count: "exact", head: true }).eq("user_id", user.id),
-      supabase.from("sender_rules").select("id", { count: "exact", head: true }).eq("user_id", user.id),
-    ]);
-    isNewUser = accountCount === 0 && ruleCount === 0;
+  if (!user) {
+    return {
+      mode,
+      newItems: [],
+      newItemsTotal: 0,
+      continueReading: [],
+      selectedSourceItems: [],
+      savedItems: [],
+      recentlyRead: [],
+      isNewUser: false,
+    } satisfies HomeData;
   }
 
-  const active = messages.filter((m: MessageRecord) => !m.archived);
+  const supabase = await createServerSupabaseClient();
 
-  // New arrivals: never opened (state is still "new"), most recent first
-  const allNewItems = active.filter((m: MessageRecord) => m.state === "new");
-  const newItems = allNewItems.slice(0, 6);
+  const MSG_SELECT = `
+    id, source_id, subject, from_name, from_email, snippet,
+    sent_at, received_at, unsubscribe_url,
+    state, progress_percent, saved, archived, last_scroll_position,
+    newsletter_sources(id, display_name, category, logo_url)
+  `;
 
-  // Continue reading: opened or actively in progress (not yet finished or saved)
-  const continueReading = active
-    .filter((m: MessageRecord) => m.state === "in_progress" || m.state === "opened")
-    .slice(0, 6);
+  // Run all queries in parallel — each is a targeted index scan
+  const [
+    { count: accountCount },
+    { count: ruleCount },
+    { count: newItemsTotal },
+    { data: newRows },
+    { data: continueRows },
+    { data: recentlyReadRows },
+    { data: savedRows },
+    { data: sourceStripRows },
+  ] = await Promise.all([
+    supabase.from("email_accounts").select("id", { count: "exact", head: true }).eq("user_id", user.id),
+    supabase.from("sender_rules").select("id", { count: "exact", head: true }).eq("user_id", user.id),
+    // Total new count (for stats bar)
+    supabase.from("messages").select("id", { count: "exact", head: true })
+      .eq("user_id", user.id).eq("state", "new").eq("archived", false),
+    // New arrivals section (6 items)
+    supabase.from("messages").select(MSG_SELECT)
+      .eq("user_id", user.id).eq("state", "new").eq("archived", false)
+      .order("received_at", { ascending: false }).limit(6),
+    // Continue reading section (6 items)
+    supabase.from("messages").select(MSG_SELECT)
+      .eq("user_id", user.id).in("state", ["opened", "in_progress"]).eq("archived", false)
+      .order("received_at", { ascending: false }).limit(6),
+    // Recently read section (4 items)
+    supabase.from("messages").select(MSG_SELECT)
+      .eq("user_id", user.id).eq("state", "finished").eq("archived", false)
+      .order("received_at", { ascending: false }).limit(4),
+    // Saved for later section (6 items)
+    supabase.from("messages").select(MSG_SELECT)
+      .eq("user_id", user.id).eq("saved", true).eq("archived", false)
+      .order("received_at", { ascending: false }).limit(6),
+    // Source sample strip — one recent message per source (fetch recent 20, dedupe in-app)
+    supabase.from("messages").select(MSG_SELECT)
+      .eq("user_id", user.id).eq("archived", false)
+      .order("received_at", { ascending: false }).limit(20),
+  ]);
 
-  // Recently read: fully finished articles
-  const recentlyRead = active
-    .filter((m: MessageRecord) => m.state === "finished")
-    .slice(0, 4);
+  const map = (rows: unknown[] | null) =>
+    ((rows ?? []) as unknown as DbMessageRow[]).map(mapDbMessage);
 
-  // Saved for later
-  const savedItems = active
-    .filter((m: MessageRecord) => m.saved || m.state === "saved")
-    .slice(0, 6);
-
-  // One article per source for the source sample strip
+  // Deduplicate source strip to one item per source
   const selectedSourceItems: MessageRecord[] = [];
   const seen = new Set<string>();
-  for (const message of active) {
-    if (seen.has(message.sourceId)) continue;
-    seen.add(message.sourceId);
-    selectedSourceItems.push(message);
+  for (const msg of map(sourceStripRows)) {
+    if (seen.has(msg.sourceId)) continue;
+    seen.add(msg.sourceId);
+    selectedSourceItems.push(msg);
     if (selectedSourceItems.length === 4) break;
   }
 
   return {
     mode,
-    newItems,
-    newItemsTotal: allNewItems.length,
-    continueReading,
+    newItems: map(newRows),
+    newItemsTotal: newItemsTotal ?? 0,
+    continueReading: map(continueRows),
     selectedSourceItems,
-    savedItems,
-    recentlyRead,
-    isNewUser,
+    savedItems: map(savedRows),
+    recentlyRead: map(recentlyReadRows),
+    isNewUser: (accountCount ?? 0) === 0 && (ruleCount ?? 0) === 0,
   } satisfies HomeData;
 }
 
@@ -447,13 +414,13 @@ export async function getShellSummary() {
   // Use lightweight aggregate queries instead of fetching all messages
   const [newCountResult, savedCountResult, sourceCountResult] = await Promise.all([
     supabase
-      .from("user_message_states")
+      .from("messages")
       .select("id", { count: "exact", head: true })
       .eq("user_id", user.id)
       .eq("state", "new")
       .eq("archived", false),
     supabase
-      .from("user_message_states")
+      .from("messages")
       .select("id", { count: "exact", head: true })
       .eq("user_id", user.id)
       .eq("saved", true)
@@ -478,17 +445,66 @@ export async function getShellSummary() {
   };
 }
 
-export async function getLibraryData(): Promise<LibraryData> {
-  const [mode, messages] = await Promise.all([getRuntimeMode(), getLiveMessages()]);
+const LIBRARY_PAGE_SIZE = 50;
+
+export async function getLibraryData(
+  filter: "all" | "new" | "reading" | "recently_read" | "saved" = "all",
+  page = 1,
+): Promise<LibraryData> {
+  const mode = await getRuntimeMode();
+  if (mode === "setup") return { mode, messages: [], totalCount: 0 };
+
+  const user = await getCurrentUser();
+  if (!user) return { mode, messages: [], totalCount: 0 };
+
+  const supabase = await createServerSupabaseClient();
+  const offset = (Math.max(1, page) - 1) * LIBRARY_PAGE_SIZE;
+
+  let query = supabase
+    .from("messages")
+    .select(
+      `
+        id, source_id, subject, from_name, from_email, snippet,
+        sent_at, received_at, unsubscribe_url,
+        state, progress_percent, saved, archived, last_scroll_position,
+        newsletter_sources(id, display_name, category, logo_url)
+      `,
+      { count: "exact" },
+    )
+    .eq("user_id", user.id);
+
+  // Apply DB-side filter
+  switch (filter) {
+    case "new":
+      query = query.eq("state", "new");
+      break;
+    case "reading":
+      query = query.in("state", ["opened", "in_progress"]);
+      break;
+    case "recently_read":
+      query = query.eq("state", "finished");
+      break;
+    case "saved":
+      query = query.eq("saved", true);
+      break;
+  }
+
+  const { data, error, count } = await query
+    .order("received_at", { ascending: false })
+    .range(offset, offset + LIBRARY_PAGE_SIZE - 1);
+
+  if (error || !data) return { mode, messages: [], totalCount: 0 };
+
   return {
     mode,
-    messages,
+    messages: (data as unknown as DbMessageRow[]).map(mapDbMessage),
+    totalCount: count ?? 0,
   };
 }
 
 export async function getSourcesData(): Promise<SourcesData> {
-  const [mode, messages] = await Promise.all([getRuntimeMode(), getLiveMessages()]);
-  const sources = mode === "setup" ? [] : await getLiveSources(messages);
+  const mode = await getRuntimeMode();
+  const sources = mode === "setup" ? [] : await getLiveSources();
 
   let pendingRules: SenderRule[] = [];
   if (mode === "live" && hasSupabaseConfig()) {
@@ -523,25 +539,70 @@ export async function getSourcesData(): Promise<SourcesData> {
 }
 
 export async function getSourceData(sourceId: string): Promise<SourceDetailData | null> {
-  const [mode, messages] = await Promise.all([getRuntimeMode(), getLiveMessages()]);
+  const mode = await getRuntimeMode();
   if (mode === "setup") return null;
-  const sources = await getLiveSources(messages);
-  const source = sources.find((entry: SourceRecord) => entry.id === sourceId);
 
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const supabase = await createServerSupabaseClient();
+
+  const [sources, { data: msgRows, error: msgError }] = await Promise.all([
+    getLiveSources(),
+    supabase
+      .from("messages")
+      .select(
+        `
+          id, source_id, subject, from_name, from_email, snippet,
+          sent_at, received_at, unsubscribe_url,
+          state, progress_percent, saved, archived, last_scroll_position,
+          newsletter_sources(id, display_name, category, logo_url)
+        `,
+      )
+      .eq("user_id", user.id)
+      .eq("source_id", sourceId)
+      .order("received_at", { ascending: false }),
+  ]);
+
+  const source = sources.find((entry: SourceRecord) => entry.id === sourceId);
   if (!source) return null;
 
-  return {
-    mode,
-    source,
-    messages: messages.filter((message: MessageRecord) => message.sourceId === sourceId),
-  };
+  const messages = msgError || !msgRows
+    ? []
+    : (msgRows as unknown as DbMessageRow[]).map(mapDbMessage);
+
+  return { mode, source, messages };
 }
 
 export async function getSavedData(): Promise<LibraryData> {
-  const [mode, messages] = await Promise.all([getRuntimeMode(), getLiveMessages()]);
+  const mode = await getRuntimeMode();
+  if (mode === "setup") return { mode, messages: [], totalCount: 0 };
+
+  const user = await getCurrentUser();
+  if (!user) return { mode, messages: [], totalCount: 0 };
+
+  const supabase = await createServerSupabaseClient();
+  const { data, error, count } = await supabase
+    .from("messages")
+    .select(
+      `
+        id, source_id, subject, from_name, from_email, snippet,
+        sent_at, received_at, unsubscribe_url,
+        state, progress_percent, saved, archived, last_scroll_position,
+        newsletter_sources(id, display_name, category, logo_url)
+      `,
+      { count: "exact" },
+    )
+    .eq("user_id", user.id)
+    .eq("saved", true)
+    .order("received_at", { ascending: false });
+
+  if (error || !data) return { mode, messages: [], totalCount: 0 };
+
   return {
     mode,
-    messages: messages.filter((message: MessageRecord) => message.saved || message.state === "saved"),
+    messages: (data as unknown as DbMessageRow[]).map(mapDbMessage),
+    totalCount: count ?? 0,
   };
 }
 
@@ -564,69 +625,33 @@ export async function searchMessages(query: string): Promise<LibraryData> {
 
   const supabase = await createServerSupabaseClient();
 
-  // Fetch messages (without bodies — list views don't need them) and states separately
-  // to work around embedded-join RLS issues, consistent with getLiveMessages().
-  const [messagesResult, statesResult] = await Promise.all([
-    supabase
-      .from("messages")
-      .select(
-        `
-          id,
-          source_id,
-          subject,
-          from_name,
-          from_email,
-          snippet,
-          sent_at,
-          received_at,
-          unsubscribe_url,
-          newsletter_sources(id, display_name, category, logo_url)
-        `,
-      )
-      .eq("user_id", user.id)
-      .or(
-        [
-          `subject.ilike.%${normalized}%`,
-          `from_email.ilike.%${normalized}%`,
-          `from_name.ilike.%${normalized}%`,
-          `snippet.ilike.%${normalized}%`,
-        ].join(","),
-      )
-      .order("received_at", { ascending: false })
-      .limit(50),
-    supabase
-      .from("user_message_states")
-      .select("message_id, state, progress_percent, saved, archived, last_scroll_position")
-      .eq("user_id", user.id),
-  ]);
+  const { data: messagesData, error } = await supabase
+    .rpc("search_messages", { p_user_id: user.id, p_query: normalized });
 
-  if (messagesResult.error || !messagesResult.data) {
+  if (error || !messagesData) {
     return { mode, messages: [] };
   }
 
-  const stateMap = new Map<string, {
-    state: MessageState;
-    progress_percent: number | null;
-    saved: boolean | null;
-    archived: boolean | null;
-    last_scroll_position: number | null;
-  }>();
-  for (const row of statesResult.data ?? []) {
-    stateMap.set(row.message_id, row as {
-      state: MessageState;
-      progress_percent: number | null;
-      saved: boolean | null;
-      archived: boolean | null;
-      last_scroll_position: number | null;
-    });
-  }
+  // RPC returns flat rows — reshape to match DbMessageRow structure
+  const rows = (messagesData as Array<{
+    id: string; source_id: string; subject: string; from_name: string; from_email: string;
+    snippet: string; sent_at: string; received_at: string; unsubscribe_url: string | null;
+    state: string; progress_percent: number; saved: boolean; archived: boolean;
+    last_scroll_position: number | null; display_name: string | null;
+    category: string | null; logo_url: string | null;
+  }>).map((r) => ({
+    ...r,
+    newsletter_sources: {
+      id: r.source_id,
+      display_name: r.display_name,
+      category: r.category,
+      logo_url: r.logo_url,
+    },
+  }));
 
   return {
     mode,
-    messages: (messagesResult.data as unknown as DbMessageRow[]).map((row) => {
-      const stateRow = stateMap.get(row.id) ?? null;
-      return mapDbMessage({ ...row, user_message_states: stateRow ? [stateRow] : [] });
-    }),
+    messages: (rows as unknown as DbMessageRow[]).map(mapDbMessage),
   };
 }
 
@@ -672,7 +697,7 @@ export async function getSettingsData(): Promise<SettingsData> {
   }
 
   const supabase = await createServerSupabaseClient();
-  const [{ data: accounts }, { count }, { data: rules }, { data: sources }, { data: msgRows }] = await Promise.all([
+  const [{ data: accounts }, { count }, { data: rules }, { data: msgRows }] = await Promise.all([
     supabase
       .from("email_accounts")
       .select("last_synced_at, last_error, email_address", { count: "exact" })
@@ -683,24 +708,17 @@ export async function getSettingsData(): Promise<SettingsData> {
       .from("messages")
       .select("id", { count: "exact", head: true })
       .eq("user_id", user.id),
+    // Issue 8: select source_id FK directly — no string matching needed
     supabase
       .from("sender_rules")
-      .select("id, rule_type, value, action, source_label, created_at, active")
+      .select("id, rule_type, value, action, source_label, created_at, active, source_id")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
-    supabase
-      .from("newsletter_sources")
-      .select("id, normalized_sender_email, normalized_sender_domain")
-      .eq("user_id", user.id),
     supabase
       .from("messages")
       .select("source_id")
       .eq("user_id", user.id),
   ]);
-
-  // Build source lookup: email/domain → { id }
-  const sourceByEmail = new Map((sources ?? []).map((s) => [s.normalized_sender_email?.toLowerCase(), s.id]));
-  const sourceByDomain = new Map((sources ?? []).map((s) => [s.normalized_sender_domain?.toLowerCase(), s.id]));
 
   // Build message count per source_id
   const msgCountMap = new Map<string, number>();
@@ -718,9 +736,7 @@ export async function getSettingsData(): Promise<SettingsData> {
     metadataRetentionDays: appEnv.metadataRetentionDays,
     senderRules:
       rules?.map((rule) => {
-        const val = rule.value.toLowerCase();
-        const sourceId =
-          (rule.rule_type === "sender_email" ? sourceByEmail.get(val) : sourceByDomain.get(val)) ?? null;
+        const sourceId = rule.source_id ?? null;
         return {
           id: rule.id,
           ruleType: rule.rule_type,
@@ -730,7 +746,7 @@ export async function getSettingsData(): Promise<SettingsData> {
           createdAt: rule.created_at,
           active: rule.active ?? true,
           messageCount: sourceId ? (msgCountMap.get(sourceId) ?? 0) : 0,
-          sourceId: sourceId ?? null,
+          sourceId,
         };
       }) || [],
     lastError: accounts?.[0]?.last_error || null,
@@ -760,30 +776,33 @@ export async function updateMessageState(
   }
 
   const supabase = await createServerSupabaseClient();
+  const now = new Date().toISOString();
   const update: Record<string, unknown> = {
-    user_id: user.id,
-    message_id: messageId,
-    state: payload.state || "opened",
-    progress_percent: payload.progressPercent ?? 0,
-    saved: payload.saved ?? payload.state === "saved",
-    archived: payload.archived ?? payload.state === "archived",
-    last_scroll_position: payload.lastScrollPosition ?? 0,
-    last_read_at: new Date().toISOString(),
-    finished_at:
-      payload.state === "finished" || payload.progressPercent === 100
-        ? new Date().toISOString()
-        : null,
+    last_read_at: now,
   };
 
-  // Only set opened_at on the first open — don't overwrite on repeated updates
-  if (payload.state === "opened" || payload.state === "in_progress") {
-    // Let the upsert insert it for new rows; for existing rows, preserve the original timestamp
-    update.opened_at = new Date().toISOString();
+  // Only include fields that were explicitly provided — never overwrite with defaults
+  if (payload.state !== undefined) update.state = payload.state;
+  if (payload.progressPercent !== undefined) update.progress_percent = payload.progressPercent;
+  if (payload.saved !== undefined) update.saved = payload.saved;
+  if (payload.archived !== undefined) update.archived = payload.archived;
+  if (payload.lastScrollPosition !== undefined) update.last_scroll_position = payload.lastScrollPosition;
+
+  // opened_at: set only on first open ('opened' state), never overwrite on subsequent scroll events
+  if (payload.state === "opened") {
+    update.opened_at = now;
+  }
+
+  // finished_at: set when finishing, never cleared — preserves history if user re-reads
+  if (payload.state === "finished" || payload.progressPercent === 100) {
+    update.finished_at = now;
   }
 
   const { error } = await supabase
-    .from("user_message_states")
-    .upsert(update, { onConflict: "user_id,message_id" });
+    .from("messages")
+    .update(update)
+    .eq("id", messageId)
+    .eq("user_id", user.id);
 
   return error ? { ok: false, error: error.message } : { ok: true };
 }
@@ -844,32 +863,15 @@ export async function deleteUserData() {
     return { ok: false, error: "Not authenticated." };
   }
 
+  // Issue 11: single atomic RPC call — all deletes run inside one Postgres transaction.
+  // The function deletes rules, sources (which cascades to messages and bodies),
+  // sync_jobs, and resets the Gmail account sync state.
   const supabase = await createServerSupabaseClient();
+  const { error } = await supabase.rpc("delete_user_data", { p_user_id: user.id });
 
-  await supabase.from("message_bodies").delete().in(
-    "message_id",
-    (
-      await supabase.from("messages").select("id").eq("user_id", user.id)
-    ).data?.map((row) => row.id) || [],
-  );
-
-  await supabase.from("user_message_states").delete().eq("user_id", user.id);
-  await supabase.from("messages").delete().eq("user_id", user.id);
-  await supabase.from("newsletter_sources").delete().eq("user_id", user.id);
-  await supabase.from("sender_rules").delete().eq("user_id", user.id);
-  await supabase.from("sync_jobs").delete().eq("user_id", user.id);
-
-  // Reset sync state so the next sync does a full lookback query
-  const admin = createAdminSupabaseClient();
-  if (admin) {
-    await admin
-      .from("email_accounts")
-      .update({ last_synced_at: null, history_id: null, last_error: null })
-      .eq("user_id", user.id)
-      .eq("provider", "gmail");
-  }
-
-  return { ok: true, message: "Synced newsletter data deleted." };
+  return error
+    ? { ok: false, error: error.message }
+    : { ok: true, message: "Synced newsletter data deleted." };
 }
 
 export async function disconnectGmail() {
@@ -899,13 +901,14 @@ async function syncMessageBatch(
   userId: string,
   accountId: string,
   messages: ParsedGmailMessage[],
+  syncJobId?: string | null,
 ) {
   for (let i = 0; i < messages.length; i += SYNC_BATCH_SIZE) {
     const batch = messages.slice(i, i + SYNC_BATCH_SIZE);
     await Promise.all(
       batch.map(async (message) => {
         const source = await upsertSource(userId, message);
-        await upsertMessage(userId, accountId, source.id, message);
+        await upsertMessage(userId, accountId, source.id, message, syncJobId);
       }),
     );
   }
@@ -942,6 +945,15 @@ async function upsertSource(userId: string, message: ParsedGmailMessage) {
         ...(!existing.logo_url && message.logoUrl ? { logo_url: message.logoUrl } : {}),
       })
       .eq("id", existing.id);
+
+    // Issue 8: ensure the sender_rule FK points to this source (may be null if rule was created after first sync)
+    await admin
+      .from("sender_rules")
+      .update({ source_id: existing.id })
+      .eq("user_id", userId)
+      .or(`value.eq.${senderEmail},value.eq.${senderDomain}`)
+      .is("source_id", null);
+
     return existing as UpsertSourceResult;
   }
 
@@ -978,10 +990,18 @@ async function upsertSource(userId: string, message: ParsedGmailMessage) {
     throw new Error(error?.message || "Unable to insert source.");
   }
 
+  // Issue 8: link the matching sender_rule to the newly created source
+  await admin
+    .from("sender_rules")
+    .update({ source_id: data.id })
+    .eq("user_id", userId)
+    .or(`value.eq.${senderEmail},value.eq.${senderDomain}`)
+    .is("source_id", null);
+
   return data as UpsertSourceResult;
 }
 
-async function upsertMessage(userId: string, accountId: string, sourceId: string, message: ParsedGmailMessage) {
+async function upsertMessage(userId: string, accountId: string, sourceId: string, message: ParsedGmailMessage, syncJobId?: string | null) {
   const admin = createAdminSupabaseClient();
   if (!admin) throw new Error("Supabase service role is required for live sync.");
 
@@ -1004,9 +1024,10 @@ async function upsertMessage(userId: string, accountId: string, sourceId: string
         unsubscribe_url: message.unsubscribeUrl,
         raw_headers_json: message.rawHeadersJson,
         detection_method: message.detectionMethod,
+        ...(syncJobId ? { sync_job_id: syncJobId } : {}),
       },
       {
-        onConflict: "provider_message_id",
+        onConflict: "user_id,provider_message_id",
       },
     )
     .select("id")
@@ -1019,8 +1040,10 @@ async function upsertMessage(userId: string, accountId: string, sourceId: string
   await admin.from("message_bodies").upsert(
     {
       message_id: data.id,
+      user_id: userId,
       html_content: message.sanitizedHtmlContent,
       text_content: message.textContent,
+      raw_html_content: message.rawHtmlContent ?? null,
       sanitized_html_content: message.sanitizedHtmlContent,
       extracted_readable_text: message.extractedReadableText,
     },
@@ -1029,22 +1052,8 @@ async function upsertMessage(userId: string, accountId: string, sourceId: string
     },
   );
 
-  // Only create state for genuinely new messages — preserve existing reading states
-  await admin.from("user_message_states").upsert(
-    {
-      user_id: userId,
-      message_id: data.id,
-      state: "new",
-      progress_percent: 0,
-      saved: false,
-      archived: false,
-      last_scroll_position: 0,
-    },
-    {
-      onConflict: "user_id,message_id",
-      ignoreDuplicates: true,
-    },
-  );
+  // State defaults (new, 0 progress, etc.) are set by column defaults on insert;
+  // on conflict (re-sync) we intentionally preserve the existing reading state.
 }
 
 async function pruneOldBodies(userId: string) {
@@ -1059,6 +1068,8 @@ async function pruneOldBodies(userId: string) {
     .from("messages")
     .select("id")
     .eq("user_id", userId)
+    .eq("saved", false)
+    .eq("archived", false)
     .lt("received_at", bodyCutoff.toISOString());
 
   const bodyIds = oldMessages?.map((row) => row.id) || [];
@@ -1067,9 +1078,11 @@ async function pruneOldBodies(userId: string) {
       .from("message_bodies")
       .update({
         html_content: null,
+        raw_html_content: null,
         sanitized_html_content: null,
         text_content: null,
         extracted_readable_text: null,
+        pruned_at: new Date().toISOString(),
       })
       .in("message_id", bodyIds);
   }
@@ -1082,6 +1095,8 @@ async function pruneOldBodies(userId: string) {
     .from("messages")
     .delete()
     .eq("user_id", userId)
+    .eq("saved", false)
+    .eq("archived", false)
     .lt("received_at", metaCutoff.toISOString());
 }
 
@@ -1245,7 +1260,8 @@ export async function runSync(onProgress?: SyncProgressCallback) {
     // New include rules (synced_at = null) need a targeted full-query backfill
     // so their historical emails are pulled without re-querying every other sender.
     const newIncludeRules = includeRules.filter((rule) => !rule.synced_at);
-    let backfillSkipped = 0; // accumulates skipped counts from backfill pass
+    let backfillSkipped = 0;
+    let backfillProcessed = 0;
     if (newIncludeRules.length > 0) {
       onProgress?.(30, `Backfilling ${newIncludeRules.length} new sender${newIncludeRules.length === 1 ? "" : "s"}…`);
       const backfillResult = await syncNewslettersFromGmail({
@@ -1261,9 +1277,10 @@ export async function runSync(onProgress?: SyncProgressCallback) {
       });
 
       onProgress?.(45, `Saving backfill (${backfillResult.messages.length} messages)…`);
-      await syncMessageBatch(user.id, account.id, backfillResult.messages);
+      await syncMessageBatch(user.id, account.id, backfillResult.messages, syncJob.data?.id);
 
       backfillSkipped += backfillResult.skippedCount;
+      backfillProcessed += backfillResult.messages.length;
 
       // Mark these rules as synced so future runs use incremental sync
       await admin
@@ -1287,7 +1304,7 @@ export async function runSync(onProgress?: SyncProgressCallback) {
     });
 
     onProgress?.(75, `Saving ${result.messages.length} message${result.messages.length === 1 ? "" : "s"}…`);
-    await syncMessageBatch(user.id, account.id, result.messages);
+    await syncMessageBatch(user.id, account.id, result.messages, syncJob.data?.id);
 
     onProgress?.(90, "Cleaning up…");
     await pruneOldBodies(user.id);
@@ -1320,15 +1337,20 @@ export async function runSync(onProgress?: SyncProgressCallback) {
       .update(accountUpdate)
       .eq("id", account.id);
 
+    const totalProcessed = result.messages.length + backfillProcessed;
+    const totalSkipped = result.skippedCount + backfillSkipped;
+
     await admin
       .from("sync_jobs")
       .update({
-        status: "completed",
+        status: "done",
         finished_at: new Date().toISOString(),
+        messages_processed: totalProcessed,
+        messages_inserted: totalProcessed,
+        messages_skipped: totalSkipped,
+        sync_mode: historyIdForSync ? "incremental" : "full",
       })
       .eq("id", syncJob.data?.id);
-
-    const totalSkipped = result.skippedCount + backfillSkipped;
     const skippedNote = totalSkipped > 0
       ? ` ${totalSkipped} messages were skipped due to errors.`
       : "";

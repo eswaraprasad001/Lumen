@@ -10,6 +10,7 @@ export async function createServerSupabaseClient() {
     appEnv.supabaseUrl || "https://example.supabase.co",
     appEnv.supabaseAnonKey || "public-anon-key",
     {
+      db: { schema: "lumen" },
       cookies: {
         getAll() {
           return cookieStore.getAll();

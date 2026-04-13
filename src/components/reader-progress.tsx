@@ -31,7 +31,7 @@ export function ReaderProgress({ message }: ReaderProgressProps) {
   const [error, setError] = useState<string | null>(null);
   const [stateLabel, setStateLabel] = useState(() => {
     if (message.archived) return "Archived";
-    if (message.saved || message.state === "saved") return "Saved";
+    if (message.saved) return "Saved";
     if (message.state === "finished") return "Finished";
     if (message.state === "opened") return "Opened";
     if (message.state === "in_progress") return "Reading";
@@ -73,7 +73,7 @@ export function ReaderProgress({ message }: ReaderProgressProps) {
     // Initial state update on open — fail silently so a transient auth
     // or network issue doesn't show an error badge the user can't dismiss.
     void postState(message.id, {
-      state: message.state === "new" ? "opened" : message.state,
+      ...(message.state === "new" ? { state: "opened" } : {}),
       progressPercent: message.progressPercent,
       lastScrollPosition: message.lastScrollPosition ?? 0,
     }); // fire-and-forget, errors ignored on auto-open
@@ -114,7 +114,7 @@ export function ReaderProgress({ message }: ReaderProgressProps) {
         className="button-secondary"
         onClick={() =>
           void applyAction(
-            { state: "saved", saved: true, progressPercent: lastPercentRef.current },
+            { saved: true, progressPercent: lastPercentRef.current },
             "Saved",
           )
         }
@@ -136,7 +136,7 @@ export function ReaderProgress({ message }: ReaderProgressProps) {
         className="button-ghost"
         onClick={() =>
           void applyAction(
-            { state: "archived", archived: true, saved: false },
+            { archived: true, saved: false },
             "Archived",
           )
         }

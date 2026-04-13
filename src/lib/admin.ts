@@ -21,9 +21,7 @@ export type ReadingStateCounts = {
   new: number;
   opened: number;
   in_progress: number;
-  saved: number;
   finished: number;
-  archived: number;
 };
 
 export type TopSource = {
@@ -101,37 +99,42 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
       totalUsers: 0, activeUsers7d: 0, totalMessages: 0, totalRules: 0,
       gmailConnectedCount: 0, avgMessagesPerUser: 0,
       signupsLast30d: [], messagesLast30d: [],
-      readingStates: { new: 0, opened: 0, in_progress: 0, saved: 0, finished: 0, archived: 0 },
+      readingStates: { new: 0, opened: 0, in_progress: 0, finished: 0 },
       topSources: [], users: [],
     };
   }
 
-  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
-  const sevenDaysAgo  = new Date(Date.now() -  7 * 86400000).toISOString();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 86400000).toISOString();
 
   const [
     { data: authData },
-    { data: msgRows },
-    { data: recentMsgRows },
+    { data: msgCountRows },
     { data: ruleRows },
     { data: accountRows },
-    { data: stateRows },
-    { data: sourceRows },
+    { data: stateCounts },
+    { data: msgPerDay },
+    { data: topSourceRows },
+    { count: totalMessages },
+    { count: totalRules },
   ] = await Promise.all([
     adminClient.auth.admin.listUsers({ perPage: 1000 }),
-    adminClient.from("messages").select("user_id, received_at"),
-    adminClient.from("messages").select("received_at").gte("received_at", thirtyDaysAgo),
-    adminClient.from("sender_rules").select("user_id, action"),
+    // Per-user message counts (lightweight — only user_id)
+    adminClient.from("messages").select("user_id"),
+    adminClient.from("sender_rules").select("user_id"),
     adminClient.from("email_accounts").select("user_id, last_synced_at, provider"),
-    adminClient.from("user_message_states").select("state"),
-    adminClient.from("newsletter_sources").select("user_id, normalized_sender_domain, display_name"),
+    // Aggregated via RPC — no full table scan in JS
+    adminClient.rpc("admin_reading_state_counts"),
+    adminClient.rpc("admin_messages_per_day", { days_back: 30 }),
+    adminClient.rpc("admin_top_sources", { limit_n: 8 }),
+    adminClient.from("messages").select("*", { count: "exact", head: true }),
+    adminClient.from("sender_rules").select("*", { count: "exact", head: true }),
   ]);
 
   const authUsers = (authData as { users: { id: string; email?: string; created_at: string; last_sign_in_at?: string }[] } | null)?.users ?? [];
 
   // ── Per-user maps ────────────────────────────────────────────────────────────
   const msgCountMap = new Map<string, number>();
-  for (const row of msgRows ?? []) {
+  for (const row of msgCountRows ?? []) {
     msgCountMap.set(row.user_id, (msgCountMap.get(row.user_id) ?? 0) + 1);
   }
 
@@ -161,10 +164,10 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
 
   const activeUsers7d = users.filter((u) => u.lastSyncAt && u.lastSyncAt > sevenDaysAgo).length;
   const gmailConnectedCount = users.filter((u) => u.gmailConnected).length;
-  const totalMessages = msgRows?.length ?? 0;
-  const avgMessagesPerUser = authUsers.length > 0 ? Math.round(totalMessages / authUsers.length) : 0;
+  const total = totalMessages ?? 0;
+  const avgMessagesPerUser = authUsers.length > 0 ? Math.round(total / authUsers.length) : 0;
 
-  // ── Signups last 30 days ─────────────────────────────────────────────────────
+  // ── Signups last 30 days (still from auth — no DB aggregate available) ────────
   const signupBuckets = buildDayBuckets(30);
   for (const u of authUsers) {
     const day = isoToDay(u.created_at);
@@ -172,49 +175,34 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   }
   const signupsLast30d: DayStat[] = [...signupBuckets.entries()].map(([date, count]) => ({ date, count }));
 
-  // ── Messages received last 30 days ───────────────────────────────────────────
+  // ── Messages per day — from RPC ───────────────────────────────────────────────
   const msgBuckets = buildDayBuckets(30);
-  for (const row of recentMsgRows ?? []) {
-    const day = isoToDay(row.received_at);
-    if (msgBuckets.has(day)) msgBuckets.set(day, (msgBuckets.get(day) ?? 0) + 1);
+  for (const row of (msgPerDay ?? []) as Array<{ day: string; cnt: number }>) {
+    const day = row.day.slice(0, 10);
+    if (msgBuckets.has(day)) msgBuckets.set(day, row.cnt);
   }
   const messagesLast30d: DayStat[] = [...msgBuckets.entries()].map(([date, count]) => ({ date, count }));
 
-  // ── Reading states ────────────────────────────────────────────────────────────
-  const readingStates: ReadingStateCounts = { new: 0, opened: 0, in_progress: 0, saved: 0, finished: 0, archived: 0 };
-  for (const row of stateRows ?? []) {
-    if (row.state in readingStates) (readingStates as Record<string, number>)[row.state]++;
+  // ── Reading states — from RPC ─────────────────────────────────────────────────
+  const readingStates: ReadingStateCounts = { new: 0, opened: 0, in_progress: 0, finished: 0 };
+  for (const row of (stateCounts ?? []) as Array<{ state: string; cnt: number }>) {
+    if (row.state in readingStates) (readingStates as Record<string, number>)[row.state] = row.cnt;
   }
 
-  // ── Top sources ───────────────────────────────────────────────────────────────
-  const domainUserSet  = new Map<string, Set<string>>();
-  const domainMsgCount = new Map<string, number>();
-  const domainName     = new Map<string, string>();
-  for (const row of sourceRows ?? []) {
-    const d = row.normalized_sender_domain ?? "unknown";
-    if (!domainUserSet.has(d)) domainUserSet.set(d, new Set());
-    domainUserSet.get(d)!.add(row.user_id);
-    if (row.display_name) domainName.set(d, row.display_name);
-  }
-  for (const row of msgRows ?? []) {
-    // We need domain per message — use source lookup via sourceRows
-  }
-  // Build message count per domain via sourceRows × msgRows (source_id not available here — use userCount as proxy)
-  const topSources: TopSource[] = [...domainUserSet.entries()]
-    .map(([domain, userSet]) => ({
-      domain,
-      name: domainName.get(domain) ?? domain,
-      userCount: userSet.size,
-      messageCount: domainMsgCount.get(domain) ?? 0,
-    }))
-    .sort((a, b) => b.userCount - a.userCount)
-    .slice(0, 8);
+  // ── Top sources — from RPC ────────────────────────────────────────────────────
+  const topSources: TopSource[] = ((topSourceRows ?? []) as Array<{ domain: string; name: string; user_count: number; msg_count: number }>)
+    .map((r) => ({
+      domain: r.domain,
+      name: r.name ?? r.domain,
+      userCount: r.user_count,
+      messageCount: r.msg_count,
+    }));
 
   return {
     totalUsers: authUsers.length,
     activeUsers7d,
-    totalMessages,
-    totalRules: ruleRows?.length ?? 0,
+    totalMessages: total,
+    totalRules: totalRules ?? 0,
     gmailConnectedCount,
     avgMessagesPerUser,
     signupsLast30d,

@@ -28,6 +28,7 @@ if (!url || !serviceRoleKey) {
 }
 
 const supabase = createClient(url, serviceRoleKey, {
+  db: { schema: "lumen" },
   auth: { autoRefreshToken: false, persistSession: false },
 });
 
@@ -48,7 +49,6 @@ async function wipe(table) {
 
 async function main() {
   await wipe("message_bodies");
-  await wipe("user_message_states");
   await wipe("messages");
   await wipe("newsletter_sources");
   await wipe("sender_rules");

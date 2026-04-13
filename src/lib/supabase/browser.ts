@@ -8,5 +8,6 @@ export function createBrowserSupabaseClient() {
   return createBrowserClient(
     appEnv.supabaseUrl || "https://example.supabase.co",
     appEnv.supabaseAnonKey || "public-anon-key",
+    { db: { schema: "lumen" } },
   );
 }

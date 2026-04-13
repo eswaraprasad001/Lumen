@@ -4,7 +4,6 @@ import { NewsletterCard } from "@/components/newsletter-card";
 import { SetupState } from "@/components/setup-state";
 import { requireAuth } from "@/lib/auth";
 import { getLibraryData } from "@/lib/data";
-import { MessageRecord } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -15,29 +14,14 @@ type LibraryPageProps = {
 };
 
 const FILTERS = [
-  { value: "all",          label: "All" },
-  { value: "new",          label: "New arrivals" },
-  { value: "reading",      label: "Reading" },
+  { value: "all",           label: "All" },
+  { value: "new",           label: "New arrivals" },
+  { value: "reading",       label: "Reading" },
   { value: "recently_read", label: "Recently read" },
-  { value: "saved",        label: "Saved" },
+  { value: "saved",         label: "Saved" },
 ] as const;
 
 type FilterValue = (typeof FILTERS)[number]["value"];
-
-function applyFilter(messages: MessageRecord[], filter: FilterValue): MessageRecord[] {
-  switch (filter) {
-    case "new":
-      return messages.filter((m) => m.state === "new");
-    case "reading":
-      return messages.filter((m) => m.state === "in_progress" || m.state === "opened");
-    case "recently_read":
-      return messages.filter((m) => m.state === "finished");
-    case "saved":
-      return messages.filter((m) => m.saved || m.state === "saved");
-    default:
-      return messages;
-  }
-}
 
 function buildPageHref(activeFilter: FilterValue, page: number) {
   const params = new URLSearchParams();
@@ -57,11 +41,12 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
 
   const currentPage = Math.max(1, parseInt(page || "1", 10) || 1);
 
-  const data = await getLibraryData();
-  const allFiltered = applyFilter(data.messages, activeFilter);
-  const totalPages = Math.max(1, Math.ceil(allFiltered.length / PAGE_SIZE));
+  // DB-side filter + pagination — no in-memory slicing
+  const data = await getLibraryData(activeFilter, currentPage);
+  const totalCount = data.totalCount ?? 0;
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   const safePage = Math.min(currentPage, totalPages);
-  const messages = allFiltered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+  const { messages } = data;
 
   const activeLabel = FILTERS.find((f) => f.value === activeFilter)?.label ?? "All";
 
@@ -87,7 +72,7 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
             <div>
               <h2>{activeFilter === "all" ? "All issues" : activeLabel}</h2>
               <p>
-                {allFiltered.length} issue{allFiltered.length === 1 ? "" : "s"}
+                {totalCount} issue{totalCount === 1 ? "" : "s"}
                 {activeFilter !== "all" ? " matching filter" : " in your library"}.
               </p>
             </div>
