@@ -13,6 +13,9 @@ export const appEnv = {
   metadataRetentionDays: Number(process.env.METADATA_RETENTION_DAYS || "90"),
   syncLookbackDays: Number(process.env.SYNC_LOOKBACK_DAYS || "60"),
   enableTestLogin: process.env.NEXT_PUBLIC_ENABLE_TEST_LOGIN === "true",
+  // When true: skip all body/metadata pruning and the first-sync lookback cap.
+  // Every synced message keeps its full body indefinitely.
+  disableRetention: process.env.DISABLE_RETENTION === "true",
 };
 
 export function hasSupabaseConfig() {

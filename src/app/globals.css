@@ -775,6 +775,226 @@ a {
   border-color: transparent;
 }
 
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--accent-strong);
+  color: #fff7ef;
+  line-height: 1;
+}
+
+/* ── Save hover menu + folder picker ─────────────────────────────────── */
+
+.save-hover-wrap {
+  position: relative;
+  display: inline-block;
+}
+
+/* The hover dropdown — hidden by default, shown on wrap hover */
+.save-hover-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 200;
+  min-width: 100%;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.10);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Hidden until hovered */
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+
+.save-hover-wrap:hover .save-hover-menu,
+.save-hover-wrap:focus-within .save-hover-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.save-hover-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 110ms ease, color 110ms ease;
+}
+
+.save-hover-item:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.save-hover-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.save-btn-saved {
+  background: var(--accent-soft) !important;
+  color: var(--accent-strong) !important;
+  border-color: transparent !important;
+}
+
+.folder-picker-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 200;
+  min-width: 240px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.folder-picker-heading {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-soft);
+  padding: 2px 10px 6px;
+  margin: 0;
+}
+
+.folder-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.folder-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.folder-picker-option:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.folder-picker-option:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.folder-picker-icon {
+  font-size: 0.75rem;
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+
+.folder-picker-name {
+  flex: 1;
+}
+
+.folder-picker-count {
+  font-size: 0.78rem;
+  color: var(--text-soft);
+  flex-shrink: 0;
+}
+
+.folder-picker-empty {
+  padding: 6px 12px 8px;
+  font-size: 0.82rem;
+  color: var(--text-soft);
+  margin: 0;
+}
+
+.folder-picker-new {
+  display: flex;
+  gap: 6px;
+  padding: 8px 4px 2px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.folder-picker-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: transparent;
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  outline: none;
+  transition: border-color 120ms ease;
+}
+
+.folder-picker-input:focus {
+  border-color: var(--accent-strong);
+}
+
+.folder-picker-input::placeholder {
+  color: var(--text-soft);
+}
+
+.folder-picker-create {
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 120ms ease;
+}
+
+.folder-picker-create:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .badge-row {
   display: flex;
   flex-wrap: wrap;

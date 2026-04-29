@@ -125,6 +125,22 @@ create table if not exists lumen.sync_jobs (
   created_at timestamptz not null default now()
 );
 
+create table if not exists lumen.saved_folders (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  name text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create table if not exists lumen.message_folder_items (
+  folder_id uuid not null references lumen.saved_folders(id) on delete cascade,
+  message_id uuid not null references lumen.messages(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  created_at timestamptz not null default now(),
+  primary key (folder_id, message_id)
+);
+
 create table if not exists lumen.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
   role text not null default 'user' check (role in ('user', 'super_admin')),
@@ -327,6 +343,11 @@ create trigger trg_profiles_updated_at
 before update on lumen.profiles
 for each row execute procedure lumen.set_updated_at();
 
+drop trigger if exists trg_saved_folders_updated_at on lumen.saved_folders;
+create trigger trg_saved_folders_updated_at
+before update on lumen.saved_folders
+for each row execute procedure lumen.set_updated_at();
+
 -- ── Row Level Security ────────────────────────────────────────────────────
 
 alter table lumen.email_accounts enable row level security;
@@ -336,6 +357,8 @@ alter table lumen.message_bodies enable row level security;
 alter table lumen.sender_rules enable row level security;
 alter table lumen.sync_jobs enable row level security;
 alter table lumen.profiles enable row level security;
+alter table lumen.saved_folders enable row level security;
+alter table lumen.message_folder_items enable row level security;
 
 drop policy if exists "email_accounts_own_rows" on lumen.email_accounts;
 create policy "email_accounts_own_rows" on lumen.email_accounts
@@ -365,11 +388,31 @@ drop policy if exists "profiles_own_rows" on lumen.profiles;
 create policy "profiles_own_rows" on lumen.profiles
 for select using (auth.uid() = id);
 
+drop policy if exists "saved_folders_own_rows" on lumen.saved_folders;
+create policy "saved_folders_own_rows" on lumen.saved_folders
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+drop policy if exists "message_folder_items_own_rows" on lumen.message_folder_items;
+create policy "message_folder_items_own_rows" on lumen.message_folder_items
+for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
 -- ── Index for sender_rules.source_id FK ──────────────────────────────────
 
 create index if not exists idx_sender_rules_source_id
   on lumen.sender_rules (source_id)
   where source_id is not null;
+
+create index if not exists idx_saved_folders_user_id
+  on lumen.saved_folders (user_id);
+
+create index if not exists idx_message_folder_items_folder_id
+  on lumen.message_folder_items (folder_id);
+
+create index if not exists idx_message_folder_items_message_id
+  on lumen.message_folder_items (message_id);
+
+create index if not exists idx_message_folder_items_user_id
+  on lumen.message_folder_items (user_id);
 
 -- ── RPC: delete_user_data ─────────────────────────────────────────────────
 -- Atomically deletes all newsletter data for a user while keeping their
@@ -383,9 +426,10 @@ set search_path = lumen
 as $$
 begin
   -- Delete rules and sources (messages + bodies cascade via FK)
-  delete from lumen.sender_rules   where user_id = p_user_id;
-  delete from lumen.newsletter_sources where user_id = p_user_id;
-  delete from lumen.sync_jobs      where user_id = p_user_id;
+  delete from lumen.sender_rules        where user_id = p_user_id;
+  delete from lumen.newsletter_sources  where user_id = p_user_id;
+  delete from lumen.sync_jobs           where user_id = p_user_id;
+  delete from lumen.saved_folders       where user_id = p_user_id;
 
   -- Reset sync state so next sync does a full lookback
   update lumen.email_accounts

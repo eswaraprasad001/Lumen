@@ -2,6 +2,7 @@
 
 import { startTransition, useCallback, useEffect, useRef, useState } from "react";
 
+import { SaveToFolderButton } from "@/components/save-to-folder-button";
 import { MessageRecord } from "@/lib/types";
 
 type ReaderProgressProps = {
@@ -110,17 +111,11 @@ export function ReaderProgress({ message }: ReaderProgressProps) {
     <div className="reader-actions">
       <span className="badge badge-muted">{stateLabel}</span>
       {error ? <span className="badge badge-muted" style={{ background: "rgba(131,53,43,0.08)", color: "#7b3f34" }}>{error}</span> : null}
-      <button
-        className="button-secondary"
-        onClick={() =>
-          void applyAction(
-            { saved: true, progressPercent: lastPercentRef.current },
-            "Saved",
-          )
-        }
-      >
-        Save
-      </button>
+      <SaveToFolderButton
+        messageId={message.id}
+        isSaved={message.saved}
+        onSaved={() => setStateLabel("Saved")}
+      />
       <button
         className="button-secondary"
         onClick={() =>
