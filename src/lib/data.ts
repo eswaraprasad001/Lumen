@@ -95,31 +95,6 @@ function mapDbMessage(row: DbMessageRow): MessageRecord {
   };
 }
 
-
-const getLiveMessages = cache(async function getLiveMessages(): Promise<MessageRecord[]> {
-  const user = await getCurrentUser();
-  if (!user) return [];
-
-  const supabase = await createServerSupabaseClient();
-
-  const { data, error } = await supabase
-    .from("messages")
-    .select(
-      `
-        id, source_id, subject, from_name, from_email, snippet,
-        sent_at, received_at, unsubscribe_url,
-        state, progress_percent, saved, archived, last_scroll_position,
-        newsletter_sources(id, display_name, category, logo_url)
-      `,
-    )
-    .eq("user_id", user.id)
-    .order("received_at", { ascending: false })
-    .limit(200);
-
-  if (error || !data) return [];
-  return (data as unknown as DbMessageRow[]).map(mapDbMessage);
-});
-
 async function getLiveMessageById(messageId: string) {
   const user = await getCurrentUser();
   if (!user) return null;
@@ -1294,13 +1269,17 @@ export async function runSync(onProgress?: SyncProgressCallback) {
     // Only use incremental sync (historyId) after the first full sync has run.
     // On first sync last_synced_at is null — always do a full query so historical
     // emails from the last SYNC_LOOKBACK_DAYS window are pulled in.
-    const historyIdForSync = account.last_synced_at ? account.history_id : null;
+    const isFirstSync = !account.last_synced_at;
+    const historyIdForSync = isFirstSync ? null : account.history_id;
 
     const result = await syncNewslettersFromGmail({
       accessToken,
       refreshToken,
       historyId: historyIdForSync,
       rules: allMappedRules,
+      // Cap first-ever sync to retentionDays so every message has body content.
+      // Subsequent syncs use the full syncLookbackDays window.
+      lookbackDays: isFirstSync ? appEnv.retentionDays : undefined,
     });
 
     onProgress?.(75, `Saving ${result.messages.length} message${result.messages.length === 1 ? "" : "s"}…`);

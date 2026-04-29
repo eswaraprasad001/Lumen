@@ -21,19 +21,20 @@ type SyncRule = {
   action: "include" | "exclude";
 };
 
-function buildRuleScopedQuery(rules: SyncRule[]) {
+function buildRuleScopedQuery(rules: SyncRule[], lookbackDays?: number) {
   const includeRules = rules.filter((rule) => rule.action === "include");
   if (!includeRules.length) {
     return null;
   }
 
+  const days = lookbackDays ?? appEnv.syncLookbackDays;
   const senderQueries = includeRules.map((rule) =>
     rule.ruleType === "sender_email"
       ? `from:${rule.value}`
       : `from:${rule.value}`,
   );
 
-  return `newer_than:${appEnv.syncLookbackDays}d {${senderQueries.join(" ")}}`;
+  return `newer_than:${days}d {${senderQueries.join(" ")}}`;
 }
 
 export type ParsedGmailMessage = {
@@ -320,8 +321,11 @@ export async function syncNewslettersFromGmail(input: {
    *  Use this to run a targeted backfill for a specific sender without
    *  re-querying every other tracked sender. */
   queryRules?: SyncRule[];
+  /** Override the newer_than:Nd Gmail query window. Defaults to syncLookbackDays.
+   *  Pass retentionDays on a first-ever sync so all fetched messages have body content. */
+  lookbackDays?: number;
 }): Promise<SyncResult> {
-  const query = buildRuleScopedQuery(input.queryRules ?? input.rules);
+  const query = buildRuleScopedQuery(input.queryRules ?? input.rules, input.lookbackDays);
   if (!query) {
     return {
       messages: [],
