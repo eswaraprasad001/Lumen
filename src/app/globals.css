@@ -796,23 +796,65 @@ a {
   line-height: 1;
 }
 
-/* ── Save button group + folder picker ────────────────────────────────── */
+/* ── Save hover menu + folder picker ─────────────────────────────────── */
 
-.save-btn-group {
+.save-hover-wrap {
   position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0;
+  display: inline-block;
 }
 
-/* Fuse the two buttons into a pill pair */
-.save-btn-primary {
-  border-radius: 999px 0 0 999px !important;
-  border-right: none !important;
+/* The hover dropdown — hidden by default, shown on wrap hover */
+.save-hover-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 200;
+  min-width: 100%;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.10);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* Hidden until hovered */
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition: opacity 140ms ease, transform 140ms ease;
 }
 
-.save-btn-primary:disabled {
-  opacity: 0.55;
+.save-hover-wrap:hover .save-hover-menu,
+.save-hover-wrap:focus-within .save-hover-menu {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.save-hover-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.875rem;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  white-space: nowrap;
+  transition: background 110ms ease, color 110ms ease;
+}
+
+.save-hover-item:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.save-hover-item:disabled {
+  opacity: 0.4;
   cursor: default;
 }
 
@@ -820,28 +862,6 @@ a {
   background: var(--accent-soft) !important;
   color: var(--accent-strong) !important;
   border-color: transparent !important;
-}
-
-.save-btn-folder {
-  border-radius: 0 999px 999px 0 !important;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-}
-
-.save-btn-folder-open {
-  background: var(--accent-soft) !important;
-  color: var(--accent-strong) !important;
-}
-
-.save-btn-chevron {
-  font-size: 0.65rem;
-  opacity: 0.6;
-}
-
-/* Divider between the two halves */
-.save-btn-primary + .save-btn-folder {
-  border-left: 1px solid var(--border) !important;
 }
 
 .folder-picker-dropdown {
