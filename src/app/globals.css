@@ -775,6 +775,138 @@ a {
   border-color: transparent;
 }
 
+.filter-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filter-chip-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+  background: var(--accent-strong);
+  color: #fff7ef;
+  line-height: 1;
+}
+
+/* ── Folder picker (Save to folder dropdown) ──────────────────────────── */
+
+.folder-picker-wrap {
+  position: relative;
+}
+
+.folder-picker-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 200;
+  min-width: 220px;
+  background: var(--surface, #fff);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.10);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.folder-picker-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.88rem;
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease;
+}
+
+.folder-picker-option:hover {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+
+.folder-picker-option-soft {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.folder-picker-icon {
+  font-size: 0.75rem;
+  opacity: 0.5;
+}
+
+.folder-picker-count {
+  margin-left: auto;
+  font-size: 0.78rem;
+  color: var(--text-soft);
+}
+
+.folder-picker-empty {
+  padding: 8px 12px;
+  font-size: 0.82rem;
+  color: var(--text-soft);
+  margin: 0;
+}
+
+.folder-picker-new {
+  display: flex;
+  gap: 6px;
+  padding: 6px 6px 4px;
+  border-top: 1px solid var(--border);
+  margin-top: 4px;
+}
+
+.folder-picker-input {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg, #f8f6f2);
+  font: inherit;
+  font-size: 0.85rem;
+  color: var(--text);
+  outline: none;
+}
+
+.folder-picker-input:focus {
+  border-color: var(--accent-strong);
+}
+
+.folder-picker-create {
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: opacity 120ms ease;
+}
+
+.folder-picker-create:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .badge-row {
   display: flex;
   flex-wrap: wrap;

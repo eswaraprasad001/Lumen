@@ -549,36 +549,94 @@ export async function getSourceData(sourceId: string): Promise<SourceDetailData 
   return { mode, source, messages };
 }
 
-export async function getSavedData(): Promise<LibraryData> {
-  const mode = await getRuntimeMode();
-  if (mode === "setup") return { mode, messages: [], totalCount: 0 };
-
+export async function getUserFolders() {
   const user = await getCurrentUser();
-  if (!user) return { mode, messages: [], totalCount: 0 };
+  if (!user) return [];
 
   const supabase = await createServerSupabaseClient();
-  const { data, error, count } = await supabase
-    .from("messages")
-    .select(
-      `
-        id, source_id, subject, from_name, from_email, snippet,
-        sent_at, received_at, unsubscribe_url,
-        state, progress_percent, saved, archived, last_scroll_position,
-        newsletter_sources(id, display_name, category, logo_url)
-      `,
-      { count: "exact" },
-    )
+  const { data } = await supabase
+    .from("saved_folders")
+    .select("id, name, created_at")
     .eq("user_id", user.id)
-    .eq("saved", true)
-    .order("received_at", { ascending: false });
+    .order("created_at", { ascending: true });
 
-  if (error || !data) return { mode, messages: [], totalCount: 0 };
+  if (!data) return [];
 
-  return {
-    mode,
-    messages: (data as unknown as DbMessageRow[]).map(mapDbMessage),
-    totalCount: count ?? 0,
-  };
+  // Get message counts per folder via junction table
+  const { data: countRows } = await supabase
+    .from("message_folder_items")
+    .select("folder_id")
+    .eq("user_id", user.id);
+
+  const countMap = new Map<string, number>();
+  for (const row of countRows ?? []) {
+    countMap.set(row.folder_id, (countMap.get(row.folder_id) ?? 0) + 1);
+  }
+
+  return data.map((f) => ({
+    id: f.id,
+    name: f.name,
+    messageCount: countMap.get(f.id) ?? 0,
+    createdAt: f.created_at,
+  }));
+}
+
+export async function getSavedData(folderId?: string | null): Promise<import("@/lib/types").SavedData> {
+  const mode = await getRuntimeMode();
+  const empty = { mode, messages: [] as import("@/lib/types").MessageRecord[], folders: [] as import("@/lib/types").SavedFolder[], totalCount: 0 };
+  if (mode === "setup") return empty;
+
+  const user = await getCurrentUser();
+  if (!user) return empty;
+
+  const supabase = await createServerSupabaseClient();
+
+  const [messages, folders] = await Promise.all([
+    folderId
+      ? supabase
+          .from("message_folder_items")
+          .select(
+            `message_id,
+             messages!inner(
+               id, source_id, subject, from_name, from_email, snippet,
+               sent_at, received_at, unsubscribe_url,
+               state, progress_percent, saved, archived, last_scroll_position,
+               newsletter_sources(id, display_name, category, logo_url)
+             )`,
+            { count: "exact" },
+          )
+          .eq("folder_id", folderId)
+          .eq("user_id", user.id)
+      : supabase
+          .from("messages")
+          .select(
+            `id, source_id, subject, from_name, from_email, snippet,
+             sent_at, received_at, unsubscribe_url,
+             state, progress_percent, saved, archived, last_scroll_position,
+             newsletter_sources(id, display_name, category, logo_url)`,
+            { count: "exact" },
+          )
+          .eq("user_id", user.id)
+          .eq("saved", true)
+          .order("received_at", { ascending: false }),
+    getUserFolders(),
+  ]);
+
+  const { data, error, count } = messages;
+  if (error || !data) return { ...empty, folders };
+
+  let mappedMessages: import("@/lib/types").MessageRecord[];
+  if (folderId) {
+    // Folder query returns junction rows — unwrap the nested messages object
+    mappedMessages = (data as Array<{ messages: unknown }>)
+      .map((row) => row.messages)
+      .filter(Boolean)
+      .map((m) => mapDbMessage(m as DbMessageRow));
+  } else {
+    mappedMessages = (data as unknown as DbMessageRow[]).map(mapDbMessage);
+  }
+
+  return { mode, messages: mappedMessages, folders, totalCount: count ?? 0 };
 }
 
 export async function searchMessages(query: string): Promise<LibraryData> {

@@ -93,6 +93,20 @@ export type SourceDetailData = {
   messages: MessageRecord[];
 };
 
+export type SavedFolder = {
+  id: string;
+  name: string;
+  messageCount: number;
+  createdAt: string;
+};
+
+export type SavedData = {
+  mode: "setup" | "live";
+  messages: MessageRecord[];
+  folders: SavedFolder[];
+  totalCount: number;
+};
+
 export type SettingsData = {
   mode: "setup" | "live";
   gmailConnected: boolean;
