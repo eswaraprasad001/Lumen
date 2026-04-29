@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { formatDistanceToNowStrict } from "date-fns";
 
 import { DeleteMessageButton } from "@/components/delete-message-button";
+import { MoveToFolderButton } from "@/components/move-to-folder-button";
 import { NewsletterIcon } from "@/components/newsletter-icon";
 import { decodeHtmlEntities } from "@/lib/format";
 import { MessageRecord } from "@/lib/types";
@@ -12,6 +13,7 @@ import { MessageRecord } from "@/lib/types";
 type NewsletterCardProps = {
   message: MessageRecord;
   showDelete?: boolean;
+  showMove?: boolean;
 };
 
 function getStateLabel(message: MessageRecord) {
@@ -23,7 +25,7 @@ function getStateLabel(message: MessageRecord) {
   return "New";
 }
 
-export function NewsletterCard({ message, showDelete }: NewsletterCardProps) {
+export function NewsletterCard({ message, showDelete, showMove }: NewsletterCardProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const domain = message.fromEmail.split("@")[1] ?? "";
@@ -74,9 +76,12 @@ export function NewsletterCard({ message, showDelete }: NewsletterCardProps) {
           ) : null}
         </div>
 
-        <a href={href} onClick={navigate} className="button-secondary">
-          Open
-        </a>
+        <div className="card-actions-right">
+          {showMove && <MoveToFolderButton messageId={message.id} />}
+          <a href={href} onClick={navigate} className="button-secondary">
+            Open
+          </a>
+        </div>
       </div>
     </article>
   );

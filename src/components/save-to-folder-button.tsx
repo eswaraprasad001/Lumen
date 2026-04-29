@@ -11,6 +11,7 @@ type Props = {
 };
 
 export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const [folderPickerOpen, setFolderPickerOpen] = useState(false);
   const [folders, setFolders] = useState<FolderItem[]>([]);
   const [loadingFolders, setLoadingFolders] = useState(false);
@@ -20,17 +21,17 @@ export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Close folder picker on outside click
   useEffect(() => {
-    if (!folderPickerOpen) return;
+    if (!menuOpen && !folderPickerOpen) return;
     function handler(e: MouseEvent) {
       if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) {
+        setMenuOpen(false);
         setFolderPickerOpen(false);
       }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
-  }, [folderPickerOpen]);
+  }, [menuOpen, folderPickerOpen]);
 
   useEffect(() => {
     if (folderPickerOpen) setTimeout(() => inputRef.current?.focus(), 60);
@@ -52,10 +53,12 @@ export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
       onSaved();
     } finally {
       setSaving(false);
+      setMenuOpen(false);
     }
   }
 
-  async function handleOpenFolderPicker() {
+  async function openFolderPicker() {
+    setMenuOpen(false);
     setFolderPickerOpen(true);
     setLoadingFolders(true);
     try {
@@ -83,7 +86,7 @@ export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
     }
   }
 
-  async function createAndSave() {
+  async function createFolder() {
     if (!newName.trim() || creating) return;
     setCreating(true);
     try {
@@ -94,9 +97,9 @@ export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
       });
       const data = (await res.json()) as { ok: boolean; folder?: FolderItem };
       if (data.ok && data.folder) {
-        setFolders((prev) => [...prev, data.folder!]);
+        // Add to list — user then clicks the folder row to save there
+        setFolders((prev) => [...prev, { ...data.folder!, messageCount: 0 }]);
         setNewName("");
-        await saveToFolder(data.folder.id);
       }
     } finally {
       setCreating(false);
@@ -104,36 +107,38 @@ export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
   }
 
   return (
-    <div className="save-hover-wrap" ref={wrapRef}>
-      {/* Trigger button */}
+    <div className="save-split-wrap" ref={wrapRef}>
+      {/* Left: quick save */}
       <button
-        className={`button-secondary${isSaved ? " save-btn-saved" : ""}`}
-        disabled={saving}
+        className={`button-secondary save-split-left${isSaved ? " save-btn-saved" : ""}`}
+        onClick={() => void handleQuickSave()}
+        disabled={isSaved || saving}
       >
-        {saving ? "Saving…" : isSaved ? "Saved" : "Save"}
+        {saving && !folderPickerOpen ? "Saving…" : isSaved ? "Saved" : "Save"}
       </button>
 
-      {/* Hover dropdown — two choices */}
-      {!folderPickerOpen && (
-        <div className="save-hover-menu">
-          <button
-            className="save-hover-item"
-            onClick={() => void handleQuickSave()}
-            disabled={isSaved || saving}
-          >
-            Save
-          </button>
-          <button
-            className="save-hover-item"
-            onClick={() => void handleOpenFolderPicker()}
-            disabled={saving}
-          >
+      {/* Right: arrow that opens dropdown */}
+      <button
+        className={`button-secondary save-split-right${menuOpen || folderPickerOpen ? " save-btn-saved" : ""}`}
+        onClick={() => {
+          if (folderPickerOpen) { setFolderPickerOpen(false); return; }
+          setMenuOpen((v) => !v);
+        }}
+        aria-label="Save options"
+      >
+        ▾
+      </button>
+
+      {/* Step 1: tiny menu */}
+      {menuOpen && !folderPickerOpen && (
+        <div className="save-menu-dropdown">
+          <button className="save-menu-item" onClick={() => void openFolderPicker()}>
             Save to folder
           </button>
         </div>
       )}
 
-      {/* Folder picker popup */}
+      {/* Step 2: folder picker */}
       {folderPickerOpen && (
         <div className="folder-picker-dropdown">
           <p className="folder-picker-heading">Choose a folder</p>
@@ -169,16 +174,16 @@ export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter") void createAndSave();
+                if (e.key === "Enter") void createFolder();
                 if (e.key === "Escape") setFolderPickerOpen(false);
               }}
             />
             <button
               className="folder-picker-create"
-              onClick={() => void createAndSave()}
+              onClick={() => void createFolder()}
               disabled={creating || !newName.trim()}
             >
-              {creating ? "…" : "Create"}
+              {creating ? "…" : "+ Add"}
             </button>
           </div>
         </div>
