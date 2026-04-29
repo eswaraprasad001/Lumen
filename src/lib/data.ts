@@ -1032,6 +1032,8 @@ async function upsertMessage(userId: string, accountId: string, sourceId: string
 }
 
 async function pruneOldBodies(userId: string) {
+  if (appEnv.disableRetention) return;
+
   const admin = createAdminSupabaseClient();
   if (!admin) return;
 
