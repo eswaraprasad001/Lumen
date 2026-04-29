@@ -2654,56 +2654,35 @@ a {
   line-height: 1;
 }
 
-/* ── Saved page two-column layout ─────────────────── */
-.saved-layout {
-  display: grid;
-  grid-template-columns: 1fr 280px;
-  gap: 24px;
-  align-items: start;
-}
-
-.saved-articles {
-  min-width: 0;
-}
-
-.saved-sidebar {
-  position: sticky;
-  top: 24px;
-}
-
-@media (max-width: 860px) {
-  .saved-layout {
-    grid-template-columns: 1fr;
-  }
-  .saved-sidebar {
-    position: static;
-  }
-}
-
-/* ── Folder manager (sidebar) ─────────────────────── */
-.folder-manager {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-card);
-  padding: 18px;
+/* ── Saved page header row ────────────────────────── */
+.saved-header {
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
-.folder-manager-title {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-heading);
-  margin: 0;
-}
-
-.folder-manager-empty {
+.folder-mgr-trigger {
   font-size: 0.82rem;
-  color: var(--text-faint);
-  margin: 0;
+  padding: 6px 14px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  margin-top: 4px;
 }
 
+
+/* ── Folder manager modal (reuses onboarding-backdrop + activate-modal) ── */
+.folder-modal-inner {
+  max-width: 460px;
+}
+
+.folder-modal-inner .folder-manager-list {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+/* ── Folder list (shared between modal and picker) ── */
 .folder-manager-list {
   list-style: none;
   margin: 0;
