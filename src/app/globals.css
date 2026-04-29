@@ -796,10 +796,52 @@ a {
   line-height: 1;
 }
 
-/* ── Folder picker (Save to folder dropdown) ──────────────────────────── */
+/* ── Save button group + folder picker ────────────────────────────────── */
 
-.folder-picker-wrap {
+.save-btn-group {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0;
+}
+
+/* Fuse the two buttons into a pill pair */
+.save-btn-primary {
+  border-radius: 999px 0 0 999px !important;
+  border-right: none !important;
+}
+
+.save-btn-primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.save-btn-saved {
+  background: var(--accent-soft) !important;
+  color: var(--accent-strong) !important;
+  border-color: transparent !important;
+}
+
+.save-btn-folder {
+  border-radius: 0 999px 999px 0 !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.save-btn-folder-open {
+  background: var(--accent-soft) !important;
+  color: var(--accent-strong) !important;
+}
+
+.save-btn-chevron {
+  font-size: 0.65rem;
+  opacity: 0.6;
+}
+
+/* Divider between the two halves */
+.save-btn-primary + .save-btn-folder {
+  border-left: 1px solid var(--border) !important;
 }
 
 .folder-picker-dropdown {
@@ -807,12 +849,28 @@ a {
   top: calc(100% + 8px);
   right: 0;
   z-index: 200;
-  min-width: 220px;
+  min-width: 240px;
   background: var(--surface, #fff);
   border: 1px solid var(--border);
   border-radius: 14px;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.10);
-  padding: 6px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.folder-picker-heading {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-soft);
+  padding: 2px 10px 6px;
+  margin: 0;
+}
+
+.folder-picker-list {
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -832,32 +890,37 @@ a {
   color: var(--text);
   cursor: pointer;
   text-align: left;
-  transition: background 120ms ease;
+  transition: background 120ms ease, color 120ms ease;
 }
 
-.folder-picker-option:hover {
+.folder-picker-option:hover:not(:disabled) {
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
 
-.folder-picker-option-soft {
-  color: var(--text-soft);
-  font-size: 0.82rem;
+.folder-picker-option:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .folder-picker-icon {
   font-size: 0.75rem;
-  opacity: 0.5;
+  opacity: 0.45;
+  flex-shrink: 0;
+}
+
+.folder-picker-name {
+  flex: 1;
 }
 
 .folder-picker-count {
-  margin-left: auto;
   font-size: 0.78rem;
   color: var(--text-soft);
+  flex-shrink: 0;
 }
 
 .folder-picker-empty {
-  padding: 8px 12px;
+  padding: 6px 12px 8px;
   font-size: 0.82rem;
   color: var(--text-soft);
   margin: 0;
@@ -866,7 +929,7 @@ a {
 .folder-picker-new {
   display: flex;
   gap: 6px;
-  padding: 6px 6px 4px;
+  padding: 8px 4px 2px;
   border-top: 1px solid var(--border);
   margin-top: 4px;
 }
@@ -874,22 +937,27 @@ a {
 .folder-picker-input {
   flex: 1;
   min-width: 0;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: var(--bg, #f8f6f2);
+  background: transparent;
   font: inherit;
   font-size: 0.85rem;
   color: var(--text);
   outline: none;
+  transition: border-color 120ms ease;
 }
 
 .folder-picker-input:focus {
   border-color: var(--accent-strong);
 }
 
+.folder-picker-input::placeholder {
+  color: var(--text-soft);
+}
+
 .folder-picker-create {
-  padding: 7px 10px;
+  padding: 8px 12px;
   border-radius: 8px;
   border: none;
   background: var(--accent-soft);
@@ -903,7 +971,7 @@ a {
 }
 
 .folder-picker-create:disabled {
-  opacity: 0.4;
+  opacity: 0.35;
   cursor: default;
 }
 

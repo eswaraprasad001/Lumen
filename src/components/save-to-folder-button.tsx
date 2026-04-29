@@ -13,36 +13,29 @@ type Props = {
 export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
   const [open, setOpen] = useState(false);
   const [folders, setFolders] = useState<FolderItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loadingFolders, setLoadingFolders] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Close dropdown on outside click
   useEffect(() => {
     if (!open) return;
     function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
     }
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  async function handleOpen() {
-    setOpen((prev) => !prev);
-    if (!open) {
-      setLoading(true);
-      try {
-        const res = await fetch("/api/folders");
-        const data = (await res.json()) as { folders: FolderItem[] };
-        setFolders(data.folders ?? []);
-      } finally {
-        setLoading(false);
-      }
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
-  }
+  // Focus the input whenever the dropdown opens
+  useEffect(() => {
+    if (open) setTimeout(() => inputRef.current?.focus(), 50);
+  }, [open]);
 
   async function markSaved() {
     await fetch(`/api/messages/${messageId}/state`, {
@@ -50,6 +43,30 @@ export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ saved: true }),
     });
+  }
+
+  async function handleQuickSave() {
+    if (isSaved || saving) return;
+    setSaving(true);
+    try {
+      await markSaved();
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleOpenFolderPicker() {
+    setOpen((prev) => !prev);
+    if (open) return;
+    setLoadingFolders(true);
+    try {
+      const res = await fetch("/api/folders");
+      const data = (await res.json()) as { folders: FolderItem[] };
+      setFolders(data.folders ?? []);
+    } finally {
+      setLoadingFolders(false);
+    }
   }
 
   async function saveToFolder(folderId: string) {
@@ -61,17 +78,6 @@ export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ messageId }),
       });
-      onSaved();
-      setOpen(false);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function saveWithoutFolder() {
-    setSaving(true);
-    try {
-      await markSaved();
       onSaved();
       setOpen(false);
     } finally {
@@ -100,42 +106,56 @@ export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
   }
 
   return (
-    <div className="folder-picker-wrap" ref={ref}>
+    <div className="save-btn-group" ref={dropdownRef}>
+      {/* Primary: quick save */}
       <button
-        className="button-secondary"
-        onClick={() => void handleOpen()}
-        disabled={saving}
+        className={`button-secondary save-btn-primary${isSaved ? " save-btn-saved" : ""}`}
+        onClick={() => void handleQuickSave()}
+        disabled={isSaved || saving}
+        title={isSaved ? "Already saved" : "Save without folder"}
       >
-        {saving ? "Saving…" : isSaved ? "Saved ✓" : "Save to folder"}
+        {saving && !open ? "Saving…" : isSaved ? "Saved" : "Save"}
       </button>
 
+      {/* Secondary: save to folder (opens picker) */}
+      <button
+        className={`button-secondary save-btn-folder${open ? " save-btn-folder-open" : ""}`}
+        onClick={() => void handleOpenFolderPicker()}
+        title="Save to folder"
+      >
+        Save to folder
+        <span className="save-btn-chevron" aria-hidden>{open ? "▲" : "▼"}</span>
+      </button>
+
+      {/* Folder picker dropdown */}
       {open && (
         <div className="folder-picker-dropdown">
-          <button
-            className="folder-picker-option folder-picker-option-soft"
-            onClick={() => void saveWithoutFolder()}
-          >
-            Save without folder
-          </button>
+          <p className="folder-picker-heading">Choose a folder</p>
 
-          {loading ? (
-            <p className="folder-picker-empty">Loading folders…</p>
+          {loadingFolders ? (
+            <p className="folder-picker-empty">Loading…</p>
           ) : folders.length === 0 ? (
             <p className="folder-picker-empty">No folders yet — create one below.</p>
           ) : (
-            folders.map((f) => (
-              <button
-                key={f.id}
-                className="folder-picker-option"
-                onClick={() => void saveToFolder(f.id)}
-              >
-                <span className="folder-picker-icon">▸</span>
-                {f.name}
-                <span className="folder-picker-count">{f.messageCount}</span>
-              </button>
-            ))
+            <div className="folder-picker-list">
+              {folders.map((f) => (
+                <button
+                  key={f.id}
+                  className="folder-picker-option"
+                  onClick={() => void saveToFolder(f.id)}
+                  disabled={saving}
+                >
+                  <span className="folder-picker-icon">▸</span>
+                  <span className="folder-picker-name">{f.name}</span>
+                  {f.messageCount > 0 && (
+                    <span className="folder-picker-count">{f.messageCount}</span>
+                  )}
+                </button>
+              ))}
+            </div>
           )}
 
+          {/* Create new folder */}
           <div className="folder-picker-new">
             <input
               ref={inputRef}
@@ -153,7 +173,7 @@ export function SaveToFolderButton({ messageId, isSaved, onSaved }: Props) {
               onClick={() => void createAndSave()}
               disabled={creating || !newName.trim()}
             >
-              {creating ? "…" : "+ Create & save"}
+              {creating ? "…" : "Create"}
             </button>
           </div>
         </div>
