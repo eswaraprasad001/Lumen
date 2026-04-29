@@ -93,7 +93,7 @@ export function SourceCard({ source }: SourceCardProps) {
     <article className="source-card">
       <div className="source-header">
         <div>
-          <span>{source.senderDomain}</span>
+          <span>{source.senderEmail}</span>
           <h2 style={{ marginTop: "8px" }}>
             <LoadingLink href={`/sources/${source.id}`} showSpinner>
               {source.displayName}
