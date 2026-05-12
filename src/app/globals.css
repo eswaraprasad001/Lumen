@@ -1061,6 +1061,14 @@ a {
   color: var(--text);
 }
 
+.quick-sync-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
 .quick-sync-btn {
   display: inline-flex;
   align-items: center;
@@ -1075,7 +1083,29 @@ a {
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
   white-space: nowrap;
-  flex-shrink: 0;
+}
+
+.quick-sync-btn-error {
+  border-color: rgba(180, 60, 40, 0.35);
+  color: rgb(160, 50, 35);
+  background: rgba(180, 60, 40, 0.06);
+}
+
+.quick-sync-error {
+  font-size: 0.78rem;
+  color: rgb(160, 50, 35);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quick-sync-reconnect-link {
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--accent-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  white-space: nowrap;
 }
 
 .quick-sync-btn:hover:not(:disabled) {
