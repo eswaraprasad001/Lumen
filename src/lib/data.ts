@@ -1169,38 +1169,66 @@ export async function completeGmailConnection(code: string) {
     throw new Error("Supabase service role key is required to persist Gmail connections.");
   }
 
-  const { data, error } = await admin
+  // Check if this user already has a connected Gmail account (reconnect vs. first connect).
+  const { data: existing } = await admin
     .from("email_accounts")
-    .upsert(
-      {
+    .select("id, last_synced_at")
+    .eq("user_id", user.id)
+    .eq("provider", "gmail")
+    .maybeSingle();
+
+  const isReconnect = !!existing?.id;
+
+  const tokenFields: Record<string, unknown> = {
+    access_token_encrypted: encryptSecret(result.tokens.access_token || ""),
+    token_expires_at: result.tokens.expiry_date
+      ? new Date(result.tokens.expiry_date).toISOString()
+      : null,
+    email_address: result.emailAddress,
+    sync_enabled: true,
+    last_error: null,
+  };
+
+  // Google only issues a refresh_token on the very first authorization.
+  // On reconnect it is omitted — only overwrite the stored value if a new one arrived,
+  // otherwise the existing long-lived token stays intact.
+  if (result.tokens.refresh_token) {
+    tokenFields.refresh_token_encrypted = encryptSecret(result.tokens.refresh_token);
+  }
+
+  let accountId: string;
+
+  if (isReconnect) {
+    // Preserve last_synced_at so the next sync does NOT treat this as a first sync.
+    // Set history_id to null so runSync falls back to a date-based catch-up query
+    // covering only the gap since last_synced_at instead of a full 45-day re-pull.
+    const { error } = await admin
+      .from("email_accounts")
+      .update({ ...tokenFields, history_id: null })
+      .eq("id", existing.id);
+
+    if (error) throw new Error(error.message);
+    accountId = existing.id;
+  } else {
+    // Brand-new connection — treat the next sync as a first sync.
+    const { data, error } = await admin
+      .from("email_accounts")
+      .insert({
         user_id: user.id,
         provider: "gmail",
         provider_account_id: result.emailAddress,
-        access_token_encrypted: encryptSecret(result.tokens.access_token || ""),
-        refresh_token_encrypted: result.tokens.refresh_token
-          ? encryptSecret(result.tokens.refresh_token)
-          : null,
-        token_expires_at: result.tokens.expiry_date
-          ? new Date(result.tokens.expiry_date).toISOString()
-          : null,
-        email_address: result.emailAddress,
-        sync_enabled: true,
         history_id: result.historyId,
         last_synced_at: null,
-        last_error: null,
-      },
-      {
-        onConflict: "user_id,provider",
-      },
-    )
-    .select("id")
-    .single();
+        ...tokenFields,
+      })
+      .select("id")
+      .single();
 
-  if (error || !data) {
-    throw new Error(error?.message || "Failed to connect Gmail.");
+    if (error || !data) throw new Error(error?.message || "Failed to connect Gmail.");
+    accountId = data.id;
   }
 
-  return { accountId: data.id };
+  return { accountId, isReconnect };
 }
 
 export type SyncProgressCallback = (progress: number, message: string) => void;
@@ -1326,20 +1354,33 @@ export async function runSync(onProgress?: SyncProgressCallback) {
 
     onProgress?.(55, "Fetching recent emails…");
 
-    // Only use incremental sync (historyId) after the first full sync has run.
-    // On first sync last_synced_at is null — always do a full query so historical
-    // emails from the last SYNC_LOOKBACK_DAYS window are pulled in.
+    // Determine sync mode:
+    //   first sync   → last_synced_at is null (brand-new account)
+    //   reconnect    → last_synced_at set, history_id null (token expired + reconnected)
+    //   normal       → last_synced_at set, history_id set (incremental via Gmail History API)
     const isFirstSync = !account.last_synced_at;
-    const historyIdForSync = isFirstSync ? null : account.history_id;
+    const isReconnect = !isFirstSync && !account.history_id;
+    const historyIdForSync = (isFirstSync || isReconnect) ? null : account.history_id;
+
+    let lookbackDays: number | undefined;
+    if (isFirstSync) {
+      // Cap to retentionDays so every first-sync message has body content immediately.
+      lookbackDays = appEnv.retentionDays;
+    } else if (isReconnect) {
+      // Catch up only the gap since the last successful sync, not a full re-pull.
+      const daysSinceLastSync = Math.ceil(
+        (Date.now() - new Date(account.last_synced_at).getTime()) / (1000 * 60 * 60 * 24),
+      );
+      lookbackDays = Math.min(daysSinceLastSync + 2, appEnv.syncLookbackDays);
+    }
+    // For normal incremental syncs, lookbackDays stays undefined (historyId drives the query).
 
     const result = await syncNewslettersFromGmail({
       accessToken,
       refreshToken,
       historyId: historyIdForSync,
       rules: allMappedRules,
-      // Cap first-ever sync to retentionDays so every message has body content.
-      // Subsequent syncs use the full syncLookbackDays window.
-      lookbackDays: isFirstSync ? appEnv.retentionDays : undefined,
+      lookbackDays,
     });
 
     onProgress?.(75, `Saving ${result.messages.length} message${result.messages.length === 1 ? "" : "s"}…`);
