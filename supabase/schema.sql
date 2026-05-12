@@ -162,6 +162,9 @@ alter table lumen.message_bodies add column if not exists pruned_at timestamptz;
 -- Issue 17: FK from messages → sync_jobs (the sync run that last ingested the message)
 alter table lumen.messages add column if not exists sync_job_id uuid references lumen.sync_jobs(id) on delete set null;
 
+-- Persist computed read-time estimate so list queries don't need a message_bodies join
+alter table lumen.messages add column if not exists estimated_read_minutes integer;
+
 -- Issue 18: key_version on email_accounts for future key rotation
 alter table lumen.email_accounts add column if not exists key_version integer not null default 1;
 

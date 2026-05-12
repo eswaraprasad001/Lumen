@@ -30,6 +30,7 @@ type DbMessageRow = {
   sent_at: string;
   received_at: string;
   unsubscribe_url: string | null;
+  estimated_read_minutes: number | null;
   state: MessageState;
   progress_percent: number;
   saved: boolean;
@@ -82,7 +83,7 @@ function mapDbMessage(row: DbMessageRow): MessageRecord {
     textContent: body?.text_content,
     extractedReadableText: body?.extracted_readable_text,
     unsubscribeUrl: row.unsubscribe_url,
-    estimatedReadMinutes: estimateReadMinutes(
+    estimatedReadMinutes: row.estimated_read_minutes ?? estimateReadMinutes(
       body?.extracted_readable_text || body?.text_content || row.snippet || "",
     ),
     lastScrollPosition: row.last_scroll_position || 0,
@@ -297,7 +298,7 @@ export async function getHomeData() {
 
   const MSG_SELECT = `
     id, source_id, subject, from_name, from_email, snippet,
-    sent_at, received_at, unsubscribe_url,
+    sent_at, received_at, unsubscribe_url, estimated_read_minutes,
     state, progress_percent, saved, archived, last_scroll_position,
     newsletter_sources(id, display_name, category, logo_url)
   `;
@@ -440,7 +441,7 @@ export async function getLibraryData(
     .select(
       `
         id, source_id, subject, from_name, from_email, snippet,
-        sent_at, received_at, unsubscribe_url,
+        sent_at, received_at, unsubscribe_url, estimated_read_minutes,
         state, progress_percent, saved, archived, last_scroll_position,
         newsletter_sources(id, display_name, category, logo_url)
       `,
@@ -1055,6 +1056,7 @@ async function upsertMessage(userId: string, accountId: string, sourceId: string
         received_at: message.receivedAt,
         snippet: message.snippet,
         unsubscribe_url: message.unsubscribeUrl,
+        estimated_read_minutes: message.estimatedReadMinutes ?? null,
         raw_headers_json: message.rawHeadersJson,
         detection_method: message.detectionMethod,
         ...(syncJobId ? { sync_job_id: syncJobId } : {}),
