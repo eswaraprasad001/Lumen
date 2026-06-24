@@ -595,3 +595,39 @@ comment on table lumen.message_bodies is
 -- To promote a user:
 --   insert into lumen.profiles (id, role) values ('<user-uuid>', 'super_admin')
 --   on conflict (id) do update set role = 'super_admin';
+
+-- ── Relax email_accounts cascade deletes ───────────────────────────────────
+-- Disconnecting Gmail must never delete synced messages/jobs. Previously
+-- email_account_id had `on delete cascade`, so deleting an email_accounts row
+-- silently wiped every message synced from it. Switch to `on delete set null`
+-- so messages/jobs survive even if their account row is ever removed.
+
+alter table lumen.messages alter column email_account_id drop not null;
+
+do $$ begin
+  if exists (
+    select 1 from pg_constraint
+    where conname = 'messages_email_account_id_fkey'
+      and conrelid = 'lumen.messages'::regclass
+  ) then
+    alter table lumen.messages drop constraint messages_email_account_id_fkey;
+  end if;
+end $$;
+
+alter table lumen.messages
+  add constraint messages_email_account_id_fkey
+  foreign key (email_account_id) references lumen.email_accounts(id) on delete set null;
+
+do $$ begin
+  if exists (
+    select 1 from pg_constraint
+    where conname = 'sync_jobs_email_account_id_fkey'
+      and conrelid = 'lumen.sync_jobs'::regclass
+  ) then
+    alter table lumen.sync_jobs drop constraint sync_jobs_email_account_id_fkey;
+  end if;
+end $$;
+
+alter table lumen.sync_jobs
+  add constraint sync_jobs_email_account_id_fkey
+  foreign key (email_account_id) references lumen.email_accounts(id) on delete set null;

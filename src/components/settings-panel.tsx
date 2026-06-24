@@ -74,6 +74,7 @@ export function SettingsPanel({
   const [deletingRuleId, setDeletingRuleId] = useState<string | null>(null);
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
   const [confirmDeleteData, setConfirmDeleteData] = useState(false);
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const ruleFormRef = useRef<HTMLFormElement>(null);
 
   function flash(message: string, section: "left" | "right" = "left", ms = 4000) {
@@ -271,7 +272,7 @@ export function SettingsPanel({
                 </button>
               ) : gmailConnected ? (
                 <>
-                  <button className="button-secondary" onClick={handleDisconnect} disabled={loading}>
+                  <button className="button-secondary" onClick={() => setConfirmDisconnect(true)} disabled={loading}>
                     Disconnect
                   </button>
                   {syncProgress ? (
@@ -466,6 +467,28 @@ export function SettingsPanel({
         </div>
       </section>
     </div>
+
+    {confirmDisconnect && (
+      <div className="onboarding-backdrop" onClick={() => setConfirmDisconnect(false)}>
+        <div className="activate-modal" onClick={(e) => e.stopPropagation()}>
+          <button className="onboarding-close" onClick={() => setConfirmDisconnect(false)} aria-label="Cancel">✕</button>
+          <div className="activate-modal-header">
+            <h2>Disconnect Gmail</h2>
+            <p>Sync will stop, but your already-synced newsletters stay in your library. You can reconnect anytime.</p>
+          </div>
+          <div className="activate-modal-options">
+            <button className="activate-option" onClick={() => { setConfirmDisconnect(false); handleDisconnect(); }} disabled={loading}>
+              <strong>{loading ? "Disconnecting…" : "Yes, disconnect"}</strong>
+              <span>Stops syncing. Your library stays intact.</span>
+            </button>
+            <button className="activate-option" onClick={() => setConfirmDisconnect(false)} disabled={loading}>
+              <strong>Cancel</strong>
+              <span>Keep Gmail connected.</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
 
     {confirmDeleteData && (
       <div className="onboarding-backdrop" onClick={() => setConfirmDeleteData(false)}>

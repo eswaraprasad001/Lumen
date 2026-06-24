@@ -734,7 +734,7 @@ export async function getSettingsData(): Promise<SettingsData> {
   const [{ data: accounts }, { count }, { data: rules }, { data: msgRows }] = await Promise.all([
     supabase
       .from("email_accounts")
-      .select("last_synced_at, last_error, email_address", { count: "exact" })
+      .select("last_synced_at, last_error, email_address, sync_enabled", { count: "exact" })
       .eq("user_id", user.id)
       .eq("provider", "gmail")
       .limit(1),
@@ -762,7 +762,7 @@ export async function getSettingsData(): Promise<SettingsData> {
 
   return {
     mode,
-    gmailConnected: Boolean(accounts?.[0]),
+    gmailConnected: Boolean(accounts?.[0]?.sync_enabled),
     lastSyncAt: accounts?.[0]?.last_synced_at || null,
     messageCount: count || 0,
     includeRuleCount: (rules || []).filter((rule) => rule.action === "include").length,
@@ -920,11 +920,26 @@ export async function disconnectGmail() {
   }
 
   const supabase = await createServerSupabaseClient();
+  const { data: account } = await supabase
+    .from("email_accounts")
+    .select("id, access_token_encrypted")
+    .eq("user_id", user.id)
+    .eq("provider", "gmail")
+    .maybeSingle();
+
+  if (!account) {
+    return { ok: false, error: "Gmail is not connected." };
+  }
+
+  const { revokeGmailToken } = await import("@/lib/gmail");
+  await revokeGmailToken(decryptSecret(account.access_token_encrypted));
+
+  // Never delete the account row — messages/sync_jobs reference it, and deleting
+  // it previously cascade-wiped all synced data. Just stop syncing.
   const { error } = await supabase
     .from("email_accounts")
-    .delete()
-    .eq("user_id", user.id)
-    .eq("provider", "gmail");
+    .update({ sync_enabled: false })
+    .eq("id", account.id);
 
   return error ? { ok: false, error: error.message } : { ok: true, message: "Gmail disconnected." };
 }
@@ -1268,7 +1283,7 @@ export async function runSync(onProgress?: SyncProgressCallback) {
   const { data: account, error: accountError } = await admin
     .from("email_accounts")
     .select(
-      "id, access_token_encrypted, refresh_token_encrypted, email_address, history_id, last_synced_at",
+      "id, access_token_encrypted, refresh_token_encrypted, email_address, history_id, last_synced_at, sync_enabled",
     )
     .eq("user_id", user.id)
     .eq("provider", "gmail")
@@ -1276,6 +1291,10 @@ export async function runSync(onProgress?: SyncProgressCallback) {
 
   if (accountError || !account) {
     return { ok: false, error: "Connect Gmail before running sync." };
+  }
+
+  if (!account.sync_enabled) {
+    return { ok: false, error: "Gmail is disconnected. Reconnect to resume syncing." };
   }
 
   onProgress?.(10, "Loading sender rules…");
