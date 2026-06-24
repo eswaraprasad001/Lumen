@@ -4,6 +4,7 @@ import { requireApiAuth } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/env";
 import { runSync } from "@/lib/data";
+import { logServerError } from "@/lib/log";
 
 const RATE_LIMIT_SECONDS = 60;
 
@@ -15,12 +16,16 @@ export async function POST() {
   // Only enforced in live mode (when Supabase is configured and user is authenticated).
   if (user && hasSupabaseConfig()) {
     const supabase = await createServerSupabaseClient();
-    const { data: account } = await supabase
+    const { data: account, error: accountError } = await supabase
       .from("email_accounts")
       .select("last_synced_at")
       .eq("user_id", user.id)
       .eq("provider", "gmail")
       .maybeSingle();
+
+    if (accountError) {
+      logServerError("sync/run.rateLimitLookup", accountError, { userId: user.id });
+    }
 
     if (account?.last_synced_at) {
       const secondsAgo =

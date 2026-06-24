@@ -81,6 +81,15 @@ export function createGmailConnectUrl(state: string) {
   });
 }
 
+export async function revokeGmailToken(accessToken: string) {
+  const client = createOAuthClient();
+  try {
+    await client.revokeToken(accessToken);
+  } catch {
+    // Best-effort — token may already be expired or revoked.
+  }
+}
+
 export async function exchangeGmailCode(code: string) {
   const client = createOAuthClient();
   const { tokens } = await client.getToken(code);
