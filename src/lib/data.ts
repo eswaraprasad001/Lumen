@@ -2,6 +2,7 @@ import { cache } from "react";
 
 import { appEnv, hasAdminSupabaseConfig, hasGmailConfig, hasSupabaseConfig } from "@/lib/env";
 import { decryptSecret, encryptSecret } from "@/lib/crypto";
+import { logServerError } from "@/lib/log";
 import type { ParsedGmailMessage } from "@/lib/gmail";
 import {
   HomeData,
@@ -177,38 +178,47 @@ export async function refreshMessageContent(messageId: string): Promise<{ ok: bo
 
   if (!account) return { ok: false, error: "Email account not found." };
 
-  const accessToken = decryptSecret(account.access_token_encrypted);
-  const refreshToken = account.refresh_token_encrypted
-    ? decryptSecret(account.refresh_token_encrypted)
-    : null;
+  try {
+    const accessToken = decryptSecret(account.access_token_encrypted);
+    const refreshToken = account.refresh_token_encrypted
+      ? decryptSecret(account.refresh_token_encrypted)
+      : null;
 
-  // Get sender rules so detection still works
-  const { data: ruleRows } = await admin
-    .from("sender_rules")
-    .select("rule_type, value, action")
-    .eq("user_id", user.id);
+    // Get sender rules so detection still works
+    const { data: ruleRows } = await admin
+      .from("sender_rules")
+      .select("rule_type, value, action")
+      .eq("user_id", user.id);
 
-  const rules = (ruleRows ?? []).map((r) => ({
-    ruleType: r.rule_type as "sender_email" | "sender_domain",
-    value: r.value,
-    action: r.action as "include" | "exclude",
-  }));
+    const rules = (ruleRows ?? []).map((r) => ({
+      ruleType: r.rule_type as "sender_email" | "sender_domain",
+      value: r.value,
+      action: r.action as "include" | "exclude",
+    }));
 
-  const { refetchGmailMessage } = await import("@/lib/gmail");
-  const parsed = await refetchGmailMessage(accessToken, refreshToken, msgRow.provider_message_id, rules);
-  if (!parsed) return { ok: false, error: "Gmail returned no content." };
+    const { refetchGmailMessage } = await import("@/lib/gmail");
+    const parsed = await refetchGmailMessage(accessToken, refreshToken, msgRow.provider_message_id, rules);
+    if (!parsed) return { ok: false, error: "Gmail returned no content." };
 
-  await admin.from("message_bodies").upsert(
-    {
-      message_id: messageId,
-      user_id: user.id,
-      html_content: parsed.sanitizedHtmlContent,
-      text_content: parsed.textContent,
-      sanitized_html_content: parsed.sanitizedHtmlContent,
-      extracted_readable_text: parsed.extractedReadableText,
-    },
-    { onConflict: "message_id" },
-  );
+    await admin.from("message_bodies").upsert(
+      {
+        message_id: messageId,
+        user_id: user.id,
+        html_content: parsed.sanitizedHtmlContent,
+        text_content: parsed.textContent,
+        sanitized_html_content: parsed.sanitizedHtmlContent,
+        extracted_readable_text: parsed.extractedReadableText,
+      },
+      { onConflict: "message_id" },
+    );
+  } catch (error) {
+    const raw = error instanceof Error ? error.message : "Unable to refresh content.";
+    logServerError("refreshMessageContent", error, { messageId });
+    const message = /invalid_grant|GMAIL_TOKEN_DECRYPT_FAILED/i.test(raw)
+      ? "Gmail connection expired. Please disconnect and reconnect Gmail to continue syncing."
+      : raw;
+    return { ok: false, error: message };
+  }
 
   return { ok: true };
 }
@@ -920,19 +930,29 @@ export async function disconnectGmail() {
   }
 
   const supabase = await createServerSupabaseClient();
-  const { data: account } = await supabase
+  const { data: account, error: accountError } = await supabase
     .from("email_accounts")
     .select("id, access_token_encrypted")
     .eq("user_id", user.id)
     .eq("provider", "gmail")
     .maybeSingle();
 
+  if (accountError) {
+    logServerError("disconnectGmail.accountLookup", accountError, { userId: user.id });
+  }
+
   if (!account) {
     return { ok: false, error: "Gmail is not connected." };
   }
 
-  const { revokeGmailToken } = await import("@/lib/gmail");
-  await revokeGmailToken(decryptSecret(account.access_token_encrypted));
+  // Revocation is best-effort: if the stored token can no longer be decrypted
+  // (e.g. APP_ENCRYPTION_KEY changed), disconnecting must still succeed.
+  try {
+    const { revokeGmailToken } = await import("@/lib/gmail");
+    await revokeGmailToken(decryptSecret(account.access_token_encrypted));
+  } catch {
+    // Ignore — the account is being disconnected regardless.
+  }
 
   // Never delete the account row — messages/sync_jobs reference it, and deleting
   // it previously cascade-wiped all synced data. Just stop syncing.
@@ -1087,7 +1107,7 @@ async function upsertMessage(userId: string, accountId: string, sourceId: string
     throw new Error(error?.message || "Unable to upsert message.");
   }
 
-  await admin.from("message_bodies").upsert(
+  const { error: bodyError } = await admin.from("message_bodies").upsert(
     {
       message_id: data.id,
       user_id: userId,
@@ -1102,6 +1122,10 @@ async function upsertMessage(userId: string, accountId: string, sourceId: string
     },
   );
 
+  if (bodyError) {
+    logServerError("upsertMessage.messageBodies", bodyError, { messageId: data.id });
+  }
+
   // State defaults (new, 0 progress, etc.) are set by column defaults on insert;
   // on conflict (re-sync) we intentionally preserve the existing reading state.
 }
@@ -1112,11 +1136,27 @@ async function pruneOldBodies(userId: string) {
   const admin = createAdminSupabaseClient();
   if (!admin) return;
 
+  // Messages filed in any folder are user-curated and must never be auto-pruned,
+  // even once saved=false (e.g. after "Finish") — filing is the durability signal.
+  const { data: folderedRows, error: folderedError } = await admin
+    .from("message_folder_items")
+    .select("message_id")
+    .eq("user_id", userId);
+
+  if (folderedError) {
+    // If we can't tell what's foldered, we must not prune anything for this user —
+    // proceeding would risk treating folder-filed content as unfoldered again.
+    logServerError("pruneOldBodies.folderedRows", folderedError, { userId });
+    return;
+  }
+
+  const foldered = new Set((folderedRows ?? []).map((row) => row.message_id));
+
   // Pass 1: Null out all body content for messages older than retentionDays (45 days).
   const bodyCutoff = new Date();
   bodyCutoff.setDate(bodyCutoff.getDate() - appEnv.retentionDays);
 
-  const { data: oldMessages } = await admin
+  const { data: oldMessages, error: oldMessagesError } = await admin
     .from("messages")
     .select("id")
     .eq("user_id", userId)
@@ -1124,9 +1164,15 @@ async function pruneOldBodies(userId: string) {
     .eq("archived", false)
     .lt("received_at", bodyCutoff.toISOString());
 
-  const bodyIds = oldMessages?.map((row) => row.id) || [];
+  if (oldMessagesError) {
+    logServerError("pruneOldBodies.oldMessages", oldMessagesError, { userId });
+  }
+
+  const bodyIds = (oldMessages ?? [])
+    .map((row) => row.id)
+    .filter((id) => !foldered.has(id));
   if (bodyIds.length) {
-    await admin
+    const { error: pruneError } = await admin
       .from("message_bodies")
       .update({
         html_content: null,
@@ -1137,19 +1183,37 @@ async function pruneOldBodies(userId: string) {
         pruned_at: new Date().toISOString(),
       })
       .in("message_id", bodyIds);
+
+    if (pruneError) {
+      logServerError("pruneOldBodies.bodyUpdate", pruneError, { userId, count: bodyIds.length });
+    }
   }
 
   // Pass 2: Delete messages entirely after metadataRetentionDays (90 days).
   const metaCutoff = new Date();
   metaCutoff.setDate(metaCutoff.getDate() - appEnv.metadataRetentionDays);
 
-  await admin
+  const { data: staleMessages, error: staleMessagesError } = await admin
     .from("messages")
-    .delete()
+    .select("id")
     .eq("user_id", userId)
     .eq("saved", false)
     .eq("archived", false)
     .lt("received_at", metaCutoff.toISOString());
+
+  if (staleMessagesError) {
+    logServerError("pruneOldBodies.staleMessages", staleMessagesError, { userId });
+  }
+
+  const deleteIds = (staleMessages ?? [])
+    .map((row) => row.id)
+    .filter((id) => !foldered.has(id));
+  if (deleteIds.length) {
+    const { error: deleteError } = await admin.from("messages").delete().in("id", deleteIds);
+    if (deleteError) {
+      logServerError("pruneOldBodies.delete", deleteError, { userId, count: deleteIds.length });
+    }
+  }
 }
 
 export async function startGmailConnection() {
@@ -1187,12 +1251,16 @@ export async function completeGmailConnection(code: string) {
   }
 
   // Check if this user already has a connected Gmail account (reconnect vs. first connect).
-  const { data: existing } = await admin
+  const { data: existing, error: existingError } = await admin
     .from("email_accounts")
     .select("id, last_synced_at")
     .eq("user_id", user.id)
     .eq("provider", "gmail")
     .maybeSingle();
+
+  if (existingError) {
+    logServerError("completeGmailConnection.existingLookup", existingError, { userId: user.id });
+  }
 
   const isReconnect = !!existing?.id;
 
@@ -1295,6 +1363,17 @@ export async function runSync(onProgress?: SyncProgressCallback) {
 
   if (!account.sync_enabled) {
     return { ok: false, error: "Gmail is disconnected. Reconnect to resume syncing." };
+  }
+
+  const { data: runningJobs } = await admin
+    .from("sync_jobs")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("status", "running")
+    .limit(1);
+
+  if (runningJobs && runningJobs.length > 0) {
+    return { ok: false, error: "A sync is already in progress." };
   }
 
   onProgress?.(10, "Loading sender rules…");
@@ -1463,8 +1542,9 @@ export async function runSync(onProgress?: SyncProgressCallback) {
     };
   } catch (error) {
     const raw = error instanceof Error ? error.message : "Unexpected sync failure.";
-    // Translate known OAuth and Postgres errors into user-friendly messages
-    const message = /invalid_grant/i.test(raw)
+    logServerError("runSync", error, { userId: user.id, accountId: account.id });
+    // Translate known OAuth, decryption, and Postgres errors into user-friendly messages
+    const message = /invalid_grant|GMAIL_TOKEN_DECRYPT_FAILED/i.test(raw)
       ? "Gmail connection expired. Please disconnect and reconnect Gmail to continue syncing."
       : /violates|constraint|duplicate|syntax|column|relation/i.test(raw)
       ? "Sync encountered a data conflict. Please try again."
@@ -1562,7 +1642,11 @@ export async function runSyncForRule(ruleId: string, mode: "catchup" | "fresh") 
 
     return { ok: true, message: `Catch-up complete. ${result.messages.length} newsletters synced from this sender.` };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Sync failed.";
+    const raw = error instanceof Error ? error.message : "Sync failed.";
+    logServerError("runSyncForRule", error, { userId: user.id, ruleId });
+    const message = /invalid_grant|GMAIL_TOKEN_DECRYPT_FAILED/i.test(raw)
+      ? "Gmail connection expired. Please disconnect and reconnect Gmail to continue syncing."
+      : raw;
     return { ok: false, error: message };
   }
 }

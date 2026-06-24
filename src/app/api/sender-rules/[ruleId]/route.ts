@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { requireApiAuth } from "@/lib/auth";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { hasSupabaseConfig } from "@/lib/env";
+import { logServerError } from "@/lib/log";
 
 type RouteProps = {
   params: Promise<{ ruleId: string }>;
@@ -62,11 +63,15 @@ export async function DELETE(_: Request, { params }: RouteProps) {
 
   // Delete the newsletter_source via FK — messages and bodies cascade automatically
   if (rule.source_id) {
-    await supabase
+    const { error: sourceError } = await supabase
       .from("newsletter_sources")
       .delete()
       .eq("id", rule.source_id)
       .eq("user_id", user!.id);
+
+    if (sourceError) {
+      logServerError("sender-rules.deleteSource", sourceError, { ruleId, sourceId: rule.source_id });
+    }
   }
 
   // Delete the rule

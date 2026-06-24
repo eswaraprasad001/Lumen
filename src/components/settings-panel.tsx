@@ -75,6 +75,7 @@ export function SettingsPanel({
   const [confirmDeleteAccount, setConfirmDeleteAccount] = useState(false);
   const [confirmDeleteData, setConfirmDeleteData] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [confirmDeleteRuleId, setConfirmDeleteRuleId] = useState<string | null>(null);
   const ruleFormRef = useRef<HTMLFormElement>(null);
 
   function flash(message: string, section: "left" | "right" = "left", ms = 4000) {
@@ -442,7 +443,7 @@ export function SettingsPanel({
                     <div className="toolbar">
                       <button
                         className="button-ghost"
-                        onClick={() => handleDeleteRule(rule.id)}
+                        onClick={() => setConfirmDeleteRuleId(rule.id)}
                         disabled={deletingRuleId !== null}
                         title="Delete rule"
                         style={{ minWidth: 28, minHeight: 28 }}
@@ -467,6 +468,45 @@ export function SettingsPanel({
         </div>
       </section>
     </div>
+
+    {confirmDeleteRuleId && (() => {
+      const rule = senderRules.find((r) => r.id === confirmDeleteRuleId);
+      if (!rule) return null;
+      const count = rule.messageCount;
+      return (
+        <div className="onboarding-backdrop" onClick={() => setConfirmDeleteRuleId(null)}>
+          <div className="activate-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="onboarding-close" onClick={() => setConfirmDeleteRuleId(null)} aria-label="Cancel">✕</button>
+            <div className="activate-modal-header">
+              <h2>Delete rule</h2>
+              <p>
+                This will permanently delete the tracking rule for <strong>{rule.value}</strong>
+                {count > 0 ? (
+                  <> and remove all <strong>{count} issue{count === 1 ? "" : "s"}</strong> synced from this sender.</>
+                ) : (
+                  <>.</>
+                )}{" "}
+                This cannot be undone.
+              </p>
+            </div>
+            <div className="activate-modal-options">
+              <button
+                className="activate-option activate-option-danger"
+                onClick={() => { setConfirmDeleteRuleId(null); handleDeleteRule(rule.id); }}
+                disabled={deletingRuleId !== null}
+              >
+                <strong>Yes, delete rule{count > 0 ? " and content" : ""}</strong>
+                <span>{count > 0 ? `Removes the rule and all ${count} synced newsletter${count === 1 ? "" : "s"}.` : "Removes the rule."}</span>
+              </button>
+              <button className="activate-option" onClick={() => setConfirmDeleteRuleId(null)} disabled={deletingRuleId !== null}>
+                <strong>Cancel</strong>
+                <span>Keep the rule and its content intact.</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    })()}
 
     {confirmDisconnect && (
       <div className="onboarding-backdrop" onClick={() => setConfirmDisconnect(false)}>

@@ -34,6 +34,11 @@ export function encryptSecret(value: string) {
  * Decrypts a secret produced by `encryptSecret`.
  * Supports both the legacy unversioned base64 format (written before key
  * versioning was introduced) and the current `v1:<base64>` format.
+ *
+ * Throws `GMAIL_TOKEN_DECRYPT_FAILED` (distinct from a missing-key config
+ * error) when APP_ENCRYPTION_KEY no longer matches the key a secret was
+ * encrypted with — callers use this to tell "reconnect Gmail" apart from
+ * "Gmail not configured."
  */
 export function decryptSecret(raw: string) {
   let payload: string;
@@ -50,9 +55,17 @@ export function decryptSecret(raw: string) {
   const authTag = buffer.subarray(12, 28);
   const encrypted = buffer.subarray(28);
 
-  const decipher = createDecipheriv("aes-256-gcm", getKey(), iv);
-  decipher.setAuthTag(authTag);
-
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString("utf8");
+  try {
+    const decipher = createDecipheriv("aes-256-gcm", getKey(), iv);
+    decipher.setAuthTag(authTag);
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString("utf8");
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("APP_ENCRYPTION_KEY is required")) {
+      throw error;
+    }
+    throw new Error(
+      "GMAIL_TOKEN_DECRYPT_FAILED: stored Gmail token could not be decrypted — APP_ENCRYPTION_KEY may have changed.",
+    );
+  }
 }
