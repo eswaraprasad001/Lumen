@@ -115,6 +115,7 @@ export type SettingsData = {
   includeRuleCount: number;
   retentionDays: number;
   metadataRetentionDays: number;
+  disableRetention: boolean;
   senderRules: SenderRule[];
   lastError?: string | null;
   userEmail: string | null;

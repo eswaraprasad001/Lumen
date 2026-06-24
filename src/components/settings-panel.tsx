@@ -44,6 +44,7 @@ type SettingsPanelProps = {
   senderRules: SenderRule[];
   retentionDays: number;
   metadataRetentionDays: number;
+  disableRetention: boolean;
   userEmail: string | null;
   gmailEmail: string | null;
   lastError?: string | null;
@@ -57,6 +58,7 @@ export function SettingsPanel({
   senderRules,
   retentionDays,
   metadataRetentionDays,
+  disableRetention,
   userEmail,
   gmailEmail,
   lastError,
@@ -327,9 +329,15 @@ export function SettingsPanel({
             <div>
               <strong>Data retention</strong>
               <p className="muted-note">
-                Newsletters are fully readable for <strong>{retentionDays} days</strong>. After that, only the sender
-                and subject are kept as a reference for up to <strong>{metadataRetentionDays} days</strong> — then
-                everything is permanently removed.
+                {disableRetention ? (
+                  "Retention limits are disabled — newsletters and their full content are kept indefinitely until you delete them yourself."
+                ) : (
+                  <>
+                    Newsletters are fully readable for <strong>{retentionDays} days</strong>. After that, only the
+                    sender and subject are kept as a reference for up to{" "}
+                    <strong>{metadataRetentionDays} days</strong> — then everything is permanently removed.
+                  </>
+                )}
               </p>
             </div>
           </div>
