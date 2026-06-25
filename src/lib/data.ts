@@ -716,6 +716,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       includeRuleCount: 0,
       retentionDays: appEnv.retentionDays,
       metadataRetentionDays: appEnv.metadataRetentionDays,
+      disableRetention: appEnv.disableRetention,
       senderRules: [],
       lastError: null,
       userEmail: null,
@@ -733,6 +734,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       includeRuleCount: 0,
       retentionDays: appEnv.retentionDays,
       metadataRetentionDays: appEnv.metadataRetentionDays,
+      disableRetention: appEnv.disableRetention,
       senderRules: [],
       lastError: null,
       userEmail: null,
@@ -758,16 +760,19 @@ export async function getSettingsData(): Promise<SettingsData> {
       .select("id, rule_type, value, action, source_label, created_at, active, source_id")
       .eq("user_id", user.id)
       .order("created_at", { ascending: false }),
+    // Use the trigger-maintained message_count on newsletter_sources instead of
+    // pulling every message row — avoids an unbounded transfer that scales with
+    // total message count (e.g. after a large historical backfill).
     supabase
-      .from("messages")
-      .select("source_id")
+      .from("newsletter_sources")
+      .select("id, message_count")
       .eq("user_id", user.id),
   ]);
 
   // Build message count per source_id
   const msgCountMap = new Map<string, number>();
   for (const row of msgRows ?? []) {
-    msgCountMap.set(row.source_id, (msgCountMap.get(row.source_id) ?? 0) + 1);
+    msgCountMap.set(row.id, row.message_count ?? 0);
   }
 
   return {
@@ -778,6 +783,7 @@ export async function getSettingsData(): Promise<SettingsData> {
     includeRuleCount: (rules || []).filter((rule) => rule.action === "include").length,
     retentionDays: appEnv.retentionDays,
     metadataRetentionDays: appEnv.metadataRetentionDays,
+    disableRetention: appEnv.disableRetention,
     senderRules:
       rules?.map((rule) => {
         const sourceId = rule.source_id ?? null;

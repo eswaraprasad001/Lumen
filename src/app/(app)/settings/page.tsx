@@ -23,6 +23,7 @@ export default async function SettingsPage() {
         senderRules={data.senderRules}
         retentionDays={data.retentionDays}
         metadataRetentionDays={data.metadataRetentionDays}
+        disableRetention={data.disableRetention}
         userEmail={data.userEmail}
         gmailEmail={data.gmailEmail}
         lastError={data.lastError}
