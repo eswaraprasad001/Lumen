@@ -1,21 +1,39 @@
 import { notFound } from "next/navigation";
 
 import { NewsletterCard } from "@/components/newsletter-card";
+import { Pagination } from "@/components/pagination";
 import { requireAuth } from "@/lib/auth";
 import { getSourceData } from "@/lib/data";
 
+export const dynamic = "force-dynamic";
+
+const PAGE_SIZE = 50;
+
 type SourcePageProps = {
   params: Promise<{ sourceId: string }>;
+  searchParams: Promise<{ page?: string }>;
 };
 
-export default async function SourcePage({ params }: SourcePageProps) {
+function buildPageHref(sourceId: string, page: number) {
+  const params = new URLSearchParams();
+  if (page > 1) params.set("page", String(page));
+  const qs = params.toString();
+  return qs ? `/sources/${sourceId}?${qs}` : `/sources/${sourceId}`;
+}
+
+export default async function SourcePage({ params, searchParams }: SourcePageProps) {
   await requireAuth();
   const { sourceId } = await params;
-  const data = await getSourceData(sourceId);
+  const { page } = await searchParams;
+  const currentPage = Math.max(1, parseInt(page || "1", 10) || 1);
+  const data = await getSourceData(sourceId, currentPage);
 
   if (!data) {
     notFound();
   }
+
+  const totalPages = Math.max(1, Math.ceil(data.totalCount / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
 
   return (
     <>
@@ -34,7 +52,7 @@ export default async function SourcePage({ params }: SourcePageProps) {
         <header>
           <div>
             <h2>Recent issues</h2>
-            <p>{data.messages.length} issues from this source.</p>
+            <p>{data.totalCount} issue{data.totalCount === 1 ? "" : "s"} from this source.</p>
           </div>
         </header>
         <div className="stack">
@@ -42,6 +60,13 @@ export default async function SourcePage({ params }: SourcePageProps) {
             <NewsletterCard key={message.id} message={message} />
           ))}
         </div>
+
+        <Pagination
+          currentPage={safePage}
+          totalPages={totalPages}
+          buildHref={(p) => buildPageHref(sourceId, p)}
+          label="Source pages"
+        />
       </section>
     </>
   );

@@ -2,20 +2,35 @@ import Link from "next/link";
 
 import { FolderManager } from "@/components/folder-manager";
 import { NewsletterCard } from "@/components/newsletter-card";
+import { Pagination } from "@/components/pagination";
 import { SetupState } from "@/components/setup-state";
 import { requireAuth } from "@/lib/auth";
 import { getSavedData } from "@/lib/data";
 
 export const dynamic = "force-dynamic";
 
+const PAGE_SIZE = 50;
+
 type SavedPageProps = {
-  searchParams: Promise<{ folder?: string }>;
+  searchParams: Promise<{ folder?: string; page?: string }>;
 };
+
+function buildPageHref(folder: string | undefined, page: number) {
+  const params = new URLSearchParams();
+  if (folder) params.set("folder", folder);
+  if (page > 1) params.set("page", String(page));
+  const qs = params.toString();
+  return qs ? `/saved?${qs}` : "/saved";
+}
 
 export default async function SavedPage({ searchParams }: SavedPageProps) {
   await requireAuth();
-  const { folder } = await searchParams;
-  const data = await getSavedData(folder ?? null);
+  const { folder, page } = await searchParams;
+  const currentPage = Math.max(1, parseInt(page || "1", 10) || 1);
+  const data = await getSavedData(folder ?? null, currentPage);
+
+  const totalPages = Math.max(1, Math.ceil(data.totalCount / PAGE_SIZE));
+  const safePage = Math.min(currentPage, totalPages);
 
   const activeFolder = folder
     ? data.folders.find((f) => f.id === folder) ?? null
@@ -86,6 +101,13 @@ export default async function SavedPage({ searchParams }: SavedPageProps) {
               </div>
             )}
           </div>
+
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            buildHref={(p) => buildPageHref(folder, p)}
+            label="Saved pages"
+          />
         </section>
       )}
     </>

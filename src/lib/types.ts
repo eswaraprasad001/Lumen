@@ -91,6 +91,7 @@ export type SourceDetailData = {
   mode: "setup" | "live";
   source: SourceRecord;
   messages: MessageRecord[];
+  totalCount: number;
 };
 
 export type SavedFolder = {

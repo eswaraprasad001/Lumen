@@ -584,6 +584,34 @@ as $$
 $$;
 grant execute on function lumen.admin_top_sources(integer) to service_role;
 
+-- Per-user message counts (admin only) — avoids pulling every message row into JS
+create or replace function lumen.admin_message_counts_by_user()
+returns table (user_id uuid, cnt bigint)
+language sql
+stable
+security definer
+set search_path = lumen
+as $$
+  select user_id, count(*) as cnt
+  from lumen.messages
+  group by user_id;
+$$;
+grant execute on function lumen.admin_message_counts_by_user() to service_role;
+
+-- Per-user sender rule counts (admin only) — avoids pulling every rule row into JS
+create or replace function lumen.admin_rule_counts_by_user()
+returns table (user_id uuid, cnt bigint)
+language sql
+stable
+security definer
+set search_path = lumen
+as $$
+  select user_id, count(*) as cnt
+  from lumen.sender_rules
+  group by user_id;
+$$;
+grant execute on function lumen.admin_rule_counts_by_user() to service_role;
+
 -- ── Comments ──────────────────────────────────────────────────────────────
 
 comment on schema lumen is 'Lumen app — newsletter reader data';

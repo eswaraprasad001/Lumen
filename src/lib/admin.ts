@@ -111,7 +111,7 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
   const [
     { data: authData },
     { data: msgCountRows },
-    { data: ruleRows },
+    { data: ruleCountRows },
     { data: accountRows },
     { data: stateCounts },
     { data: msgPerDay },
@@ -120,11 +120,10 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
     { count: totalRules },
   ] = await Promise.all([
     adminClient.auth.admin.listUsers({ perPage: 1000 }),
-    // Per-user message counts (lightweight — only user_id)
-    adminClient.from("messages").select("user_id"),
-    adminClient.from("sender_rules").select("user_id"),
-    adminClient.from("email_accounts").select("user_id, last_synced_at, provider"),
     // Aggregated via RPC — no full table scan in JS
+    adminClient.rpc("admin_message_counts_by_user"),
+    adminClient.rpc("admin_rule_counts_by_user"),
+    adminClient.from("email_accounts").select("user_id, last_synced_at, provider"),
     adminClient.rpc("admin_reading_state_counts"),
     adminClient.rpc("admin_messages_per_day", { days_back: 30 }),
     adminClient.rpc("admin_top_sources", { limit_n: 8 }),
@@ -136,13 +135,13 @@ export async function getAdminDashboardData(): Promise<AdminDashboardData> {
 
   // ── Per-user maps ────────────────────────────────────────────────────────────
   const msgCountMap = new Map<string, number>();
-  for (const row of msgCountRows ?? []) {
-    msgCountMap.set(row.user_id, (msgCountMap.get(row.user_id) ?? 0) + 1);
+  for (const row of (msgCountRows ?? []) as Array<{ user_id: string; cnt: number }>) {
+    msgCountMap.set(row.user_id, row.cnt);
   }
 
   const ruleCountMap = new Map<string, number>();
-  for (const row of ruleRows ?? []) {
-    ruleCountMap.set(row.user_id, (ruleCountMap.get(row.user_id) ?? 0) + 1);
+  for (const row of (ruleCountRows ?? []) as Array<{ user_id: string; cnt: number }>) {
+    ruleCountMap.set(row.user_id, row.cnt);
   }
 
   const syncMap = new Map<string, { lastSyncAt: string | null; connected: boolean }>();

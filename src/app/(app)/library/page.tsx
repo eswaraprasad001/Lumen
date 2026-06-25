@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { NewsletterCard } from "@/components/newsletter-card";
+import { Pagination } from "@/components/pagination";
 import { SetupState } from "@/components/setup-state";
 import { requireAuth } from "@/lib/auth";
 import { getLibraryData } from "@/lib/data";
@@ -29,21 +30,6 @@ function buildPageHref(activeFilter: FilterValue, page: number) {
   if (page > 1) params.set("page", String(page));
   const qs = params.toString();
   return qs ? `/library?${qs}` : "/library";
-}
-
-// Always show first/last page plus a window around the current page, collapsing gaps into an ellipsis.
-function buildPageNumbers(current: number, total: number): (number | "ellipsis")[] {
-  const pages: (number | "ellipsis")[] = [1];
-  const siblings = 1;
-
-  if (current - siblings > 2) pages.push("ellipsis");
-  for (let p = Math.max(2, current - siblings); p <= Math.min(total - 1, current + siblings); p++) {
-    pages.push(p);
-  }
-  if (current + siblings < total - 1) pages.push("ellipsis");
-  if (total > 1) pages.push(total);
-
-  return pages;
 }
 
 export default async function LibraryPage({ searchParams }: LibraryPageProps) {
@@ -117,43 +103,12 @@ export default async function LibraryPage({ searchParams }: LibraryPageProps) {
             )}
           </div>
 
-          {totalPages > 1 && (
-            <nav className="pagination-bar" aria-label="Library pages">
-              {safePage > 1 ? (
-                <Link href={buildPageHref(activeFilter, safePage - 1)} className="pagination-arrow">
-                  ← Previous
-                </Link>
-              ) : (
-                <span className="pagination-arrow pagination-arrow-disabled">← Previous</span>
-              )}
-
-              <div className="pagination-pages">
-                {buildPageNumbers(safePage, totalPages).map((p, i) =>
-                  p === "ellipsis" ? (
-                    <span key={`ellipsis-${i}`} className="pagination-ellipsis">
-                      …
-                    </span>
-                  ) : p === safePage ? (
-                    <span key={p} className="pagination-page pagination-page-active" aria-current="page">
-                      {p}
-                    </span>
-                  ) : (
-                    <Link key={p} href={buildPageHref(activeFilter, p)} className="pagination-page">
-                      {p}
-                    </Link>
-                  ),
-                )}
-              </div>
-
-              {safePage < totalPages ? (
-                <Link href={buildPageHref(activeFilter, safePage + 1)} className="pagination-arrow">
-                  Next →
-                </Link>
-              ) : (
-                <span className="pagination-arrow pagination-arrow-disabled">Next →</span>
-              )}
-            </nav>
-          )}
+          <Pagination
+            currentPage={safePage}
+            totalPages={totalPages}
+            buildHref={(p) => buildPageHref(activeFilter, p)}
+            label="Library pages"
+          />
         </section>
       )}
     </>

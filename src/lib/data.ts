@@ -524,7 +524,12 @@ export async function getSourcesData(): Promise<SourcesData> {
   return { mode, sources, pendingRules };
 }
 
-export async function getSourceData(sourceId: string): Promise<SourceDetailData | null> {
+const SOURCE_PAGE_SIZE = 50;
+
+export async function getSourceData(
+  sourceId: string,
+  page = 1,
+): Promise<SourceDetailData | null> {
   const mode = await getRuntimeMode();
   if (mode === "setup") return null;
 
@@ -532,8 +537,9 @@ export async function getSourceData(sourceId: string): Promise<SourceDetailData 
   if (!user) return null;
 
   const supabase = await createServerSupabaseClient();
+  const offset = (Math.max(1, page) - 1) * SOURCE_PAGE_SIZE;
 
-  const [sources, { data: msgRows, error: msgError }] = await Promise.all([
+  const [sources, { data: msgRows, error: msgError, count }] = await Promise.all([
     getLiveSources(),
     supabase
       .from("messages")
@@ -544,10 +550,12 @@ export async function getSourceData(sourceId: string): Promise<SourceDetailData 
           state, progress_percent, saved, archived, last_scroll_position,
           newsletter_sources(id, display_name, category, logo_url)
         `,
+        { count: "exact" },
       )
       .eq("user_id", user.id)
       .eq("source_id", sourceId)
-      .order("received_at", { ascending: false }),
+      .order("received_at", { ascending: false })
+      .range(offset, offset + SOURCE_PAGE_SIZE - 1),
   ]);
 
   const source = sources.find((entry: SourceRecord) => entry.id === sourceId);
@@ -557,7 +565,7 @@ export async function getSourceData(sourceId: string): Promise<SourceDetailData 
     ? []
     : (msgRows as unknown as DbMessageRow[]).map(mapDbMessage);
 
-  return { mode, source, messages };
+  return { mode, source, messages, totalCount: count ?? 0 };
 }
 
 export async function getUserFolders() {
@@ -573,26 +581,31 @@ export async function getUserFolders() {
 
   if (!data) return [];
 
-  // Get message counts per folder via junction table
-  const { data: countRows } = await supabase
-    .from("message_folder_items")
-    .select("folder_id")
-    .eq("user_id", user.id);
+  // Bounded per-folder counts (no maintained counter column on saved_folders)
+  const counts = await Promise.all(
+    data.map((f) =>
+      supabase
+        .from("message_folder_items")
+        .select("message_id", { count: "exact", head: true })
+        .eq("user_id", user.id)
+        .eq("folder_id", f.id),
+    ),
+  );
 
-  const countMap = new Map<string, number>();
-  for (const row of countRows ?? []) {
-    countMap.set(row.folder_id, (countMap.get(row.folder_id) ?? 0) + 1);
-  }
-
-  return data.map((f) => ({
+  return data.map((f, i) => ({
     id: f.id,
     name: f.name,
-    messageCount: countMap.get(f.id) ?? 0,
+    messageCount: counts[i].count ?? 0,
     createdAt: f.created_at,
   }));
 }
 
-export async function getSavedData(folderId?: string | null): Promise<import("@/lib/types").SavedData> {
+const SAVED_PAGE_SIZE = 50;
+
+export async function getSavedData(
+  folderId?: string | null,
+  page = 1,
+): Promise<import("@/lib/types").SavedData> {
   const mode = await getRuntimeMode();
   const empty = { mode, messages: [] as import("@/lib/types").MessageRecord[], folders: [] as import("@/lib/types").SavedFolder[], totalCount: 0 };
   if (mode === "setup") return empty;
@@ -601,6 +614,7 @@ export async function getSavedData(folderId?: string | null): Promise<import("@/
   if (!user) return empty;
 
   const supabase = await createServerSupabaseClient();
+  const offset = (Math.max(1, page) - 1) * SAVED_PAGE_SIZE;
 
   const [messages, folders] = await Promise.all([
     folderId
@@ -618,6 +632,8 @@ export async function getSavedData(folderId?: string | null): Promise<import("@/
           )
           .eq("folder_id", folderId)
           .eq("user_id", user.id)
+          .order("received_at", { referencedTable: "messages", ascending: false })
+          .range(offset, offset + SAVED_PAGE_SIZE - 1)
       : supabase
           .from("messages")
           .select(
@@ -629,7 +645,8 @@ export async function getSavedData(folderId?: string | null): Promise<import("@/
           )
           .eq("user_id", user.id)
           .eq("saved", true)
-          .order("received_at", { ascending: false }),
+          .order("received_at", { ascending: false })
+          .range(offset, offset + SAVED_PAGE_SIZE - 1),
     getUserFolders(),
   ]);
 
